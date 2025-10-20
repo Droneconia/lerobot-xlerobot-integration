@@ -14,7 +14,7 @@ import math
 
 from lerobot.robots.xlerobot import XLerobotClient, XLerobotClientConfig, XLerobotConfig, XLerobot
 from lerobot.utils.robot_utils import busy_wait
-from lerobot.utils.visualization_utils import init_rerun, log_rerun_data
+from lerobot.utils.visualization_utils import _init_rerun, log_rerun_data
 from lerobot.model.SO101Robot import SO101Kinematics
 from lerobot.teleoperators.keyboard.teleop_keyboard import KeyboardTeleop, KeyboardTeleopConfig
 
@@ -382,17 +382,17 @@ class SimpleTeleopArm:
 def main():
     # Teleop parameters
     FPS = 50
-    # ip = "192.168.1.123"  # This is for zmq connection
-    ip = "localhost"  # This is for local/wired connection
+    ip = "192.168.50.148"  # This is for zmq connection
+    #ip = "localhost"  # This is for local/wired connection
     robot_name = "my_xlerobot_pc"
 
     # For zmq connection
-    # robot_config = XLerobotClientConfig(remote_ip=ip, id=robot_name)
-    # robot = XLerobotClient(robot_config)    
+    robot_config = XLerobotClientConfig(remote_ip=ip, id=robot_name)
+    robot = XLerobotClient(robot_config)    
 
     # For local/wired connection
-    robot_config = XLerobotConfig()
-    robot = XLerobot(robot_config)
+    # robot_config = XLerobotConfig()
+    # robot = XLerobot(robot_config)
     
     try:
         robot.connect()
@@ -403,7 +403,7 @@ def main():
         print(robot)
         return
         
-    init_rerun(session_name="xlerobot_teleop_v2")
+    _init_rerun(session_name="xlerobot_teleop_v2")
 
     #Init the keyboard instance
     keyboard_config = KeyboardTeleopConfig()

@@ -24,7 +24,7 @@ import cv2
 import numpy as np
 import zmq
 
-from lerobot.utils.errors import DeviceAlreadyConnectedError, DeviceNotConnectedError
+from lerobot.errors import DeviceAlreadyConnectedError, DeviceNotConnectedError
 
 from ..robot import Robot
 from .config_xlerobot import XLerobotConfig, XLerobotClientConfig
@@ -231,7 +231,7 @@ class XLerobotClient(Robot):
 
         # 1. Get the latest message string from the socket
         latest_message_str = self._poll_and_get_latest_message()
-
+        
         # 2. If no message, return cached data
         if latest_message_str is None:
             return self.last_frames, self.last_remote_state
