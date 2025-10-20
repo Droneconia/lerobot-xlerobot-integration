@@ -1113,7 +1113,7 @@ class MotorsBus(abc.ABC):
             )
 
         if not self._is_comm_success(comm) and raise_on_error:
-            raise ConnectionError(f"{err_msg} {self.packet_handler.getTxRxResult(comm)}")
+            raise ConnectionError(f"{err_msg} {self.packet_handler.getTxRxResult(comm)} {comm}")
 
         values = {id_: self.sync_reader.getData(id_, addr, length) for id_ in motor_ids}
         return values, comm
