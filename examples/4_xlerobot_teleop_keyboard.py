@@ -14,7 +14,7 @@ import math
 
 from lerobot.robots.xlerobot import XLerobotClient, XLerobotClientConfig, XLerobotConfig, XLerobot
 from lerobot.utils.robot_utils import busy_wait
-from lerobot.utils.visualization_utils import _init_rerun, log_rerun_data
+from lerobot.utils.visualization_utils import init_rerun, log_rerun_data
 from lerobot.model.SO101Robot import SO101Kinematics
 from lerobot.teleoperators.keyboard.teleop_keyboard import KeyboardTeleop, KeyboardTeleopConfig
 
@@ -403,7 +403,7 @@ def main():
         print(robot)
         return
         
-    _init_rerun(session_name="xlerobot_teleop_v2")
+    init_rerun(session_name="xlerobot_teleop_v2")
 
     #Init the keyboard instance
     keyboard_config = KeyboardTeleopConfig()
