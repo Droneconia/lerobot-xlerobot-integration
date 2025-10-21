@@ -30,10 +30,10 @@ echo ""
 
 # Run lerobot-teleoperate
 lerobot-teleoperate \
-    --robot.type=xlerobot \
+    --robot.type=bi_so100_follower \
     --robot.id=$XLEROBOT_ID \
-    --robot.port1=$FOLLOWER_1_PORT \
-    --robot.port2=$FOLLOWER_2_PORT \
+    --robot.left_arm_port=$FOLLOWER_1_PORT \
+    --robot.right_arm_port=$FOLLOWER_2_PORT \
     --teleop.type=bi_so100_leader \
     --teleop.id=$LEADER_ID \
     --teleop.left_arm_port=$LEADER_1_PORT \
