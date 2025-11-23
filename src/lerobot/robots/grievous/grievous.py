@@ -159,16 +159,45 @@ class Grievous(Robot):
         return obs
 
     def get_action(self) -> dict[str, Any]:
-        """Get action from leader arms. SO101 don't have get_action(), they only have send_action().
+        """Get action from leader arms + add fixed head/base for stationary operation.
+        
+        Leader arms provide teleoperation input (12 DoF: 2 arms × 6 joints).
+        Head motors and base are kept stationary by copying current positions/setting zero velocities.
         
         Returns:
-            Dictionary with action data including leader arm positions with _leader suffix
+            Dictionary with complete action data in XLerobot format:
+            - Leader arm positions (12 DoF) - from leader arms teleoperation
+            - Head positions (2 DoF) - copied from current observation (keeps head stationary)
+            - Base velocities (3 DoF) - set to zero (keeps base stationary)
         """
-        action = self.leader_arms.get_action()
-        # leader_action = {}
-        # for key, value in action.items():
-        #     leader_action[f"{key}_leader"] = value
-        # return leader_action
+        # Get leader arm actions (returns left_*/right_* format from BiSO100Leader)
+        leader_action = self.leader_arms.get_action()
+        
+        # Map from leader format (left_*/right_*) to XLerobot format (left_arm_*/right_arm_*)
+        action = {}
+        for key, value in leader_action.items():
+            if key.startswith("left_") and not key.startswith("left_arm_"):
+                # Map left_shoulder_pan.pos -> left_arm_shoulder_pan.pos
+                mapped_key = key.replace("left_", "left_arm_", 1)
+                action[mapped_key] = value
+            elif key.startswith("right_") and not key.startswith("right_arm_"):
+                # Map right_shoulder_pan.pos -> right_arm_shoulder_pan.pos
+                mapped_key = key.replace("right_", "right_arm_", 1)
+                action[mapped_key] = value
+            else:
+                # Pass through any other keys unchanged
+                action[key] = value
+        
+        # Add current head motor positions to keep head stationary at manually-set position
+        obs = self.xlerobot.get_observation()
+        action["head_motor_1.pos"] = obs.get("head_motor_1.pos", 0.0)
+        action["head_motor_2.pos"] = obs.get("head_motor_2.pos", 0.0)
+        
+        # Add zero base velocities to keep base stationary
+        action["x.vel"] = 0.0
+        action["y.vel"] = 0.0
+        action["theta.vel"] = 0.0
+        
         return action
 
     def send_action(self, action: dict[str, Any]) -> None:
