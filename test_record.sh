@@ -95,7 +95,7 @@ lerobot-record \
     --robot.cameras='{
         left_wrist: {type: opencv, index_or_path: /dev/video6, width: 640, height: 480, fps: 30},
         right_wrist: {type: opencv, index_or_path: /dev/video8, width: 640, height: 480, fps: 30},
-        head: {type: intelrealsense, serial_number_or_name: 032622074046, width: 1280, height: 720, fps: 30}
+        head: {type: intelrealsense, serial_number_or_name: 032622074046, width: 640, height: 480, fps: 30}
     }' \
     --teleop.type=grievous_leader \
     --teleop.left_arm_port=/dev/ttyACM3 \
