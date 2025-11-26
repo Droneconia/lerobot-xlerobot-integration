@@ -167,28 +167,36 @@ if [ ! -f "src/lerobot/scripts/lerobot_train.py" ]; then
     exit 1
 fi
 
-# Parse command line argument
-case "${1:-full}" in
-    verify)
+# Interactive menu
+echo "=========================================="
+echo "  Grievous Robot SmolVLA Training"
+echo "=========================================="
+echo ""
+echo "Configuration:"
+echo "  Organization: ${ORG_NAME}"
+echo "  Dataset: ${DATASET_REPO_ID}"
+echo "  WandB Project: ${WANDB_PROJECT}"
+echo ""
+echo "Select training option:"
+echo "  1) Verify setup (10 steps, ~1 minute)"
+echo "  2) Test training (500 steps, ~15-30 minutes)"
+echo "  3) Full training (${STEPS} steps, ~4 hours)"
+echo ""
+read -p "Enter option [1-3]: " choice
+
+case "${choice}" in
+    1)
         verify_setup
         ;;
-    test)
+    2)
         test_training
         ;;
-    full)
+    3)
         full_training
         ;;
     *)
-        echo "Usage: $0 [verify|test|full]"
         echo ""
-        echo "  verify  - Quick 10-step verification (~1 minute)"
-        echo "  test    - Test training 500 steps (~15-30 minutes)"
-        echo "  full    - Full training 20k steps (~4 hours) [default]"
-        echo ""
-        echo "Configuration:"
-        echo "  Organization: ${ORG_NAME}"
-        echo "  Dataset: ${DATASET_REPO_ID}"
-        echo "  WandB Project: ${WANDB_PROJECT}"
+        echo "Invalid option. Please run the script again and choose 1, 2, or 3."
         exit 1
         ;;
 esac
