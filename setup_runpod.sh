@@ -39,6 +39,11 @@ echo "Step 3: Creating conda environment 'grievous' with Python 3.10..."
 # Source conda to use it in this script
 source /workspace/miniconda3/etc/profile.d/conda.sh
 
+# Accept conda Terms of Service (required for default channels)
+echo "Accepting conda Terms of Service..."
+conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/main || true
+conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/r || true
+
 # Create environment if it doesn't exist
 if conda env list | grep -q "grievous"; then
     echo "Conda environment 'grievous' already exists, skipping creation."
