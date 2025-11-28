@@ -63,6 +63,7 @@ verify_setup() {
         --save_checkpoint=false \
         --eval_freq=0 \
         --wandb.enable=false \
+        --policy.push_to_hub=false \
         --seed=1000
     
     echo "✓ Verification complete!"
@@ -91,6 +92,7 @@ test_training() {
         --eval_freq=0 \
         --wandb.enable=${WANDB_ENABLE} \
         --wandb.project=${WANDB_PROJECT} \
+        --policy.push_to_hub=false \
         --seed=1000
     
     echo "✓ Test training complete!"

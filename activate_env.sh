@@ -29,3 +29,4 @@ echo "  CUDA available: $(python -c 'import torch; print(torch.cuda.is_available
 echo "  Working directory: $(pwd)"
 echo "=========================================="
 
+
