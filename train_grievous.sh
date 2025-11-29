@@ -64,6 +64,9 @@ verify_setup() {
         --eval_freq=0 \
         --wandb.enable=false \
         --policy.push_to_hub=false \
+        --rename_map.observation.images.left_wrist=observation.images.camera1 \
+        --rename_map.observation.images.right_wrist=observation.images.camera2 \
+        --rename_map.observation.images.head=observation.images.camera3 \
         --seed=1000
     
     echo "✓ Verification complete!"
@@ -93,6 +96,9 @@ test_training() {
         --wandb.enable=${WANDB_ENABLE} \
         --wandb.project=${WANDB_PROJECT} \
         --policy.push_to_hub=false \
+        --rename_map.observation.images.left_wrist=observation.images.camera1 \
+        --rename_map.observation.images.right_wrist=observation.images.camera2 \
+        --rename_map.observation.images.head=observation.images.camera3 \
         --seed=1000
     
     echo "✓ Test training complete!"
@@ -128,6 +134,9 @@ full_training() {
         --wandb.project=${WANDB_PROJECT} \
         --policy.repo_id=${POLICY_REPO_ID} \
         --policy.push_to_hub=${PUSH_TO_HUB} \
+        --rename_map.observation.images.left_wrist=observation.images.camera1 \
+        --rename_map.observation.images.right_wrist=observation.images.camera2 \
+        --rename_map.observation.images.head=observation.images.camera3 \
         --seed=1000
     
     echo "✓ Full training complete!"
