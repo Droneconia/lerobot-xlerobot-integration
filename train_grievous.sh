@@ -84,7 +84,6 @@ test_training() {
         --output_dir=/workspace/outputs/test_run \
         --job_name=smolvla_test_500 \
         --policy.device=cuda \
-        --policy.dtype=bfloat16 \
         --optimizer.lr=${LEARNING_RATE} \
         --optimizer.grad_clip_norm=1.0 \
         --num_workers=4 \
@@ -118,7 +117,6 @@ full_training() {
         --output_dir=${OUTPUT_DIR} \
         --job_name=${JOB_NAME} \
         --policy.device=cuda \
-        --policy.dtype=bfloat16 \
         --optimizer.lr=${LEARNING_RATE} \
         --optimizer.weight_decay=0.0 \
         --optimizer.grad_clip_norm=1.0 \
