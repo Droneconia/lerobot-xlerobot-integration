@@ -32,6 +32,7 @@ This daemon:
 import base64
 import json
 import logging
+import threading
 import time
 
 import cv2
@@ -83,8 +84,9 @@ class GrievousHost:
         self.connection_time_s = config.connection_time_s
         self.watchdog_timeout_ms = config.watchdog_timeout_ms
         self.max_loop_freq_hz = config.max_loop_freq_hz
+        self.teleop_freq_hz = config.teleop_freq_hz
         
-        logger.info(f"GrievousHost initialized: watchdog={config.watchdog_timeout_ms}ms, freq={config.max_loop_freq_hz}Hz")
+        logger.info(f"GrievousHost initialized: watchdog={config.watchdog_timeout_ms}ms, main_freq={config.max_loop_freq_hz}Hz, teleop_freq={config.teleop_freq_hz}Hz")
 
     def disconnect(self) -> None:
         """Close ZMQ sockets and terminate context."""
@@ -93,6 +95,105 @@ class GrievousHost:
         self.zmq_cmd_socket.close()
         self.zmq_context.term()
         logger.info("GrievousHost disconnected")
+
+
+class TeleopControlThread:
+    """Separate thread for teleop control that runs at higher refresh rate.
+    
+    This thread continuously:
+    1. Gets actions from leader arms
+    2. Processes actions through processor pipelines
+    3. Sends actions to follower (XLerobot)
+    
+    The main loop can access the last processed action via get_last_action().
+    """
+    
+    def __init__(
+        self,
+        robot: "Grievous",
+        teleop_action_processor,
+        robot_action_processor,
+        freq_hz: int = 120,
+    ):
+        """Initialize teleop control thread.
+        
+        Args:
+            robot: Grievous robot instance
+            teleop_action_processor: Processor for teleop actions
+            robot_action_processor: Processor for robot actions
+            freq_hz: Refresh rate for teleop control loop
+        """
+        self.robot = robot
+        self.teleop_action_processor = teleop_action_processor
+        self.robot_action_processor = robot_action_processor
+        self.freq_hz = freq_hz
+        
+        # Thread-safe storage for last action and observation
+        self._lock = threading.Lock()
+        self._last_robot_action: dict = {}
+        self._last_observation: dict = {}
+        self._running = False
+        self._thread: threading.Thread | None = None
+    
+    def start(self) -> None:
+        """Start the teleop control thread."""
+        if self._running:
+            logger.warning("Teleop control thread is already running")
+            return
+        
+        self._running = True
+        self._thread = threading.Thread(target=self._control_loop, daemon=True)
+        self._thread.start()
+        logger.info(f"Teleop control thread started at {self.freq_hz}Hz")
+    
+    def stop(self) -> None:
+        """Stop the teleop control thread."""
+        if not self._running:
+            return
+        
+        self._running = False
+        if self._thread:
+            self._thread.join(timeout=2.0)
+            if self._thread.is_alive():
+                logger.warning("Teleop control thread did not stop gracefully")
+            else:
+                logger.info("Teleop control thread stopped")
+    
+    def _control_loop(self) -> None:
+        """Main control loop running in separate thread."""
+        while self._running:
+            loop_start = time.perf_counter()
+            
+            try:
+                
+                # Get action from leader arms
+                robot_action = self.robot.get_action()
+                
+                # Send action to follower
+                self.robot.send_action(robot_action)
+                
+                # Update thread-safe storage
+                with self._lock:
+                    self._last_robot_action = robot_action
+                    
+            except Exception as e:
+                logger.error(f"Error in teleop control loop: {e}", exc_info=True)
+            
+            # Rate limiting
+            elapsed = time.perf_counter() - loop_start
+            sleep_time = max(1 / self.freq_hz - elapsed, 0)
+            if sleep_time > 0:
+                time.sleep(sleep_time)
+    
+    def get_last_action(self) -> dict:
+        """Get the last processed robot action (thread-safe).
+        
+        Returns:
+            Dictionary containing the last robot action
+        """
+        with self._lock:
+            return self._last_robot_action.copy()
+    
 
 
 def main():
@@ -124,6 +225,15 @@ def main():
     host = GrievousHost(host_config)
 
     teleop_action_processor, robot_action_processor, robot_observation_processor = make_default_processors()
+    
+    # Start teleop control thread (runs at higher refresh rate)
+    teleop_thread = TeleopControlThread(
+        robot=robot,
+        teleop_action_processor=teleop_action_processor,
+        robot_action_processor=robot_action_processor,
+        freq_hz=host.teleop_freq_hz,
+    )
+    teleop_thread.start()
     
     last_cmd_time = time.time()
     watchdog_active = False
@@ -173,27 +283,15 @@ def main():
                 robot.xlerobot.stop_base()
             step_times["watchdog_check"] = (time.perf_counter() - step_start) * 1000  # ms
             
-            # 3. Get observation and action from Grievous (follower + leader + cameras)
+            # 3. Get observation from Grievous (follower + leader + cameras)
             step_start = time.perf_counter()
             last_observation = robot.get_observation()
             step_times["get_observation"] = (time.perf_counter() - step_start) * 1000  # ms
             
+            # 4. Get last action from teleop thread
             step_start = time.perf_counter()
-            action = robot.get_action()
-            step_times["get_action"] = (time.perf_counter() - step_start) * 1000  # ms
-            
-            # Action processors should be better understood, and potentially removed
-            step_start = time.perf_counter()
-            teleop_action = teleop_action_processor((action, last_observation))
-            step_times["teleop_action_processor"] = (time.perf_counter() - step_start) * 1000  # ms
-            
-            step_start = time.perf_counter()
-            robot_action = robot_action_processor((teleop_action, last_observation))
-            step_times["robot_action_processor"] = (time.perf_counter() - step_start) * 1000  # ms
-            
-            step_start = time.perf_counter()
-            robot.send_action(robot_action)
-            step_times["send_action"] = (time.perf_counter() - step_start) * 1000  # ms
+            robot_action = teleop_thread.get_last_action()
+            step_times["get_action_from_thread"] = (time.perf_counter() - step_start) * 1000  # ms
             
             # 4. Encode camera images to base64 for network transmission
             step_start = time.perf_counter()
@@ -272,6 +370,7 @@ def main():
     
     finally:
         logger.info("Cleaning up Grievous host...")
+        teleop_thread.stop()
         robot.disconnect()
         host.disconnect()
         logger.info("Grievous host shutdown complete")
