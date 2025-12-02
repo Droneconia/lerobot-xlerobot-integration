@@ -34,13 +34,9 @@ from PIL import Image
 
 
 def get_safe_default_codec():
-    if importlib.util.find_spec("torchcodec"):
-        return "torchcodec"
-    else:
-        logging.warning(
-            "'torchcodec' is not available in your platform, falling back to 'pyav' as a default decoder"
-        )
-        return "pyav"
+    # Prefer pyav as default since it has broader codec support (e.g., AV1)
+    # and is more reliable across different video formats
+    return "pyav"
 
 
 def decode_video_frames(
@@ -56,19 +52,47 @@ def decode_video_frames(
         video_path (Path): Path to the video file.
         timestamps (list[float]): List of timestamps to extract frames.
         tolerance_s (float): Allowed deviation in seconds for frame retrieval.
-        backend (str, optional): Backend to use for decoding. Defaults to "torchcodec" when available in the platform; otherwise, defaults to "pyav"..
+        backend (str, optional): Backend to use for decoding. Defaults to "pyav" which has broader codec support.
+            If "pyav" is specified but fails to decode, automatically falls back to "torchcodec" (if available).
 
     Returns:
         torch.Tensor: Decoded frames.
 
-    Currently supports torchcodec on cpu and pyav.
+    Currently supports pyav (default) and torchcodec.
     """
     if backend is None:
         backend = get_safe_default_codec()
-    if backend == "torchcodec":
-        return decode_video_frames_torchcodec(video_path, timestamps, tolerance_s)
-    elif backend in ["pyav", "video_reader"]:
-        return decode_video_frames_torchvision(video_path, timestamps, tolerance_s, backend)
+    if backend in ["pyav", "video_reader"]:
+        try:
+            return decode_video_frames_torchvision(video_path, timestamps, tolerance_s, backend)
+        except (ValueError, ImportError, OSError) as e:
+            # Fall back to torchcodec if pyav fails and torchcodec is available
+            if importlib.util.find_spec("torchcodec"):
+                logging.warning(
+                    f"pyav failed to decode video {video_path}: {e}. "
+                    "Falling back to torchcodec backend."
+                )
+                try:
+                    return decode_video_frames_torchcodec(video_path, timestamps, tolerance_s)
+                except Exception as e2:
+                    raise RuntimeError(
+                        f"Both pyav and torchcodec failed to decode video {video_path}. "
+                        f"pyav error: {e}, torchcodec error: {e2}"
+                    ) from e2
+            else:
+                raise RuntimeError(
+                    f"pyav failed to decode video {video_path} and torchcodec is not available: {e}"
+                ) from e
+    elif backend == "torchcodec":
+        try:
+            return decode_video_frames_torchcodec(video_path, timestamps, tolerance_s)
+        except (ValueError, ImportError, OSError) as e:
+            # Fall back to pyav if torchcodec fails
+            logging.warning(
+                f"torchcodec failed to decode video {video_path}: {e}. "
+                "Falling back to pyav backend."
+            )
+            return decode_video_frames_torchvision(video_path, timestamps, tolerance_s, "pyav")
     else:
         raise ValueError(f"Unsupported video backend: {backend}")
 

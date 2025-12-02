@@ -110,6 +110,7 @@ def visualize_dataset(
     ws_port: int = 9087,
     save: bool = False,
     output_dir: Path | None = None,
+    static: bool = True,
 ) -> Path | None:
     if save:
         assert output_dir is not None, (
@@ -154,26 +155,26 @@ def visualize_dataset(
             # display each camera image
             for key in dataset.meta.camera_keys:
                 # TODO(rcadene): add `.compress()`? is it lossless?
-                rr.log(key, rr.Image(to_hwc_uint8_numpy(batch[key][i])))
+                rr.log(key, rr.Image(to_hwc_uint8_numpy(batch[key][i])), static=static)
 
             # display each dimension of action space (e.g. actuators command)
             if ACTION in batch:
                 for dim_idx, val in enumerate(batch[ACTION][i]):
-                    rr.log(f"{ACTION}/{dim_idx}", rr.Scalars(val.item()))
+                    rr.log(f"{ACTION}/{dim_idx}", rr.Scalars(val.item()), static=static)
 
             # display each dimension of observed state space (e.g. agent position in joint space)
             if OBS_STATE in batch:
                 for dim_idx, val in enumerate(batch[OBS_STATE][i]):
-                    rr.log(f"state/{dim_idx}", rr.Scalars(val.item()))
+                    rr.log(f"state/{dim_idx}", rr.Scalars(val.item()), static=static)
 
             if DONE in batch:
-                rr.log(DONE, rr.Scalars(batch[DONE][i].item()))
+                rr.log(DONE, rr.Scalars(batch[DONE][i].item()), static=static)
 
             if REWARD in batch:
-                rr.log(REWARD, rr.Scalars(batch[REWARD][i].item()))
+                rr.log(REWARD, rr.Scalars(batch[REWARD][i].item()), static=static)
 
             if "next.success" in batch:
-                rr.log("next.success", rr.Scalars(batch["next.success"][i].item()))
+                rr.log("next.success", rr.Scalars(batch["next.success"][i].item()), static=static)
 
     if mode == "local" and save:
         # save .rrd locally
@@ -283,8 +284,20 @@ def main():
         choices=["torchcodec", "pyav", "video_reader"],
         help=(
             "Video backend to use for decoding videos. "
-            "Options: 'torchcodec' (default), 'pyav', or 'video_reader'. "
-            "Use 'pyav' if torchcodec fails to decode videos."
+            "Options: 'pyav' (default, auto-falls back to 'torchcodec' on failure), 'torchcodec', or 'video_reader'. "
+            "'pyav' has broader codec support (e.g., AV1) and is the recommended default. "
+            "If not specified, defaults to 'pyav'."
+        ),
+    )
+    parser.add_argument(
+        "--static",
+        type=int,
+        default=1,
+        choices=[0, 1],
+        help=(
+            "Enable static mode for rerun logging to reduce memory usage. "
+            "When enabled (default: 1), all logged data is stored as static, preventing temporal accumulation. "
+            "Set to 0 to disable static mode and use temporal logging (uses more memory)."
         ),
     )
 
@@ -294,13 +307,15 @@ def main():
     root = kwargs.pop("root")
     tolerance_s = kwargs.pop("tolerance_s")
     video_backend = kwargs.pop("video_backend")
+    # Convert static from int to bool
+    kwargs["static"] = bool(kwargs.get("static", 1))
 
     logging.info("Loading dataset")
     dataset = LeRobotDataset(
         repo_id, episodes=[args.episode_index], root=root, tolerance_s=tolerance_s, video_backend=video_backend
     )
 
-    visualize_dataset(dataset, **vars(args))
+    visualize_dataset(dataset, **kwargs)
 
 
 if __name__ == "__main__":

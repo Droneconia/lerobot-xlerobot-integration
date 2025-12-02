@@ -22,8 +22,14 @@ from ..config import TeleoperatorConfig
 @TeleoperatorConfig.register_subclass("grievous_leader")
 @dataclass
 class GrievousLeaderConfig(TeleoperatorConfig):
-    left_arm_port: str
-    right_arm_port: str
+    """Configuration for Grievous leader arms teleoperator on laptop.
+    
+    Port configuration (from laptop_host_setup.md):
+    - Leader left arm: /dev/leader_left
+    - Leader right arm: /dev/leader_right
+    """
+    left_arm_port: str = "/dev/leader_left"  # Leader left arm
+    right_arm_port: str = "/dev/leader_right"  # Leader right arm
     remote_ip: str = "192.168.50.148"
     port_zmq_cmd: int = 5555
 

@@ -26,19 +26,25 @@ from ..config import RobotConfig
 
 
 def grievous_cameras_config() -> dict[str, CameraConfig]:
-    """Default camera configuration for Grievous (same as XLerobot)."""
+    """Default camera configuration for Grievous (same as XLerobot).
+    
+    Camera paths (from laptop_host_setup.md):
+    - Left wrist: /dev/cam_left
+    - Right wrist: /dev/cam_right
+    - Head: RealSense D435 with serial 032622074046
+    """
     return {
         "left_wrist": OpenCVCameraConfig(
-            index_or_path="/dev/video6", fps=30, width=640, height=480, rotation=Cv2Rotation.NO_ROTATION
+            index_or_path="/dev/cam_left", fps=30, width=640, height=480, rotation=Cv2Rotation.NO_ROTATION
         ),
         "right_wrist": OpenCVCameraConfig(
-            index_or_path="/dev/video8", fps=30, width=640, height=480, rotation=Cv2Rotation.NO_ROTATION
+            index_or_path="/dev/cam_right", fps=30, width=640, height=480, rotation=Cv2Rotation.NO_ROTATION
         ),
         "head": RealSenseCameraConfig(
             serial_number_or_name="032622074046",
             fps=30,
-            width=1280,
-            height=720,
+            width=640,
+            height=480,
             color_mode=ColorMode.BGR,
             rotation=Cv2Rotation.NO_ROTATION,
             use_depth=True
@@ -49,24 +55,24 @@ def grievous_cameras_config() -> dict[str, CameraConfig]:
 @RobotConfig.register_subclass("grievous")
 @dataclass
 class GrievousConfig(RobotConfig):
-    """Configuration for Grievous robot hardware on RPi5.
+    """Configuration for Grievous robot hardware on laptop.
     
     Grievous = XLerobot (follower arms + base + head + cameras) + BiSO100Leader (leader arms)
     
-    Default port configuration (from run_grievous.sh):
-    - Follower left arm + head: /dev/ttyACM0
-    - Follower right arm + base: /dev/ttyACM1
-    - Leader left arm: /dev/ttyACM2
-    - Leader right arm: /dev/ttyACM3
+    Port configuration (from laptop_host_setup.md):
+    - Follower left arm: /dev/follower_left
+    - Follower right arm: /dev/follower_right
+    - Leader left arm: /dev/leader_left
+    - Leader right arm: /dev/leader_right
     """
     
     # Follower arms ports (XLerobot pattern)
-    port1: str = "/dev/ttyACM0"  # Left follower arm + head motors
-    port2: str = "/dev/ttyACM1"  # Right follower arm + base motors
+    port1: str = "/dev/follower_left"  # Follower left arm
+    port2: str = "/dev/follower_right"  # Follower right arm
     
     # Leader arms ports
-    leader_left_arm_port: str = "/dev/ttyACM3"
-    leader_right_arm_port: str = "/dev/ttyACM2"
+    leader_left_arm_port: str = "/dev/leader_left"  # Leader left arm
+    leader_right_arm_port: str = "/dev/leader_right"  # Leader right arm
     
     # Motor settings
     disable_torque_on_disconnect: bool = True
@@ -109,7 +115,7 @@ class GrievousHostConfig:
     # Runtime configuration
     connection_time_s: int = 3600  # Max runtime before auto-shutdown
     watchdog_timeout_ms: int = 500  # Stop robot if no commands received
-    max_loop_freq_hz: int = 30  # Control loop frequency
+    max_loop_freq_hz: int = 60  # Control loop frequency
 
 
 @RobotConfig.register_subclass("grievous_client")
@@ -121,7 +127,7 @@ class GrievousClientConfig(RobotConfig):
     """
     
     # REQUIRED FIELDS FIRST (no defaults)
-    remote_ip: str = "192.168.50.148" # IP address of RPi5 - REQUIRED
+    remote_ip: str = "192.168.50.47" # IP address of RPi5 - REQUIRED
     
     # OPTIONAL FIELDS (with defaults)
     # ZMQ ports (must match host)

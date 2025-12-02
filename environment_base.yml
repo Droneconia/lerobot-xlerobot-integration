@@ -1,0 +1,8 @@
+name: grievous
+channels:
+  - defaults
+dependencies:
+  - python=3.10
+  - ffmpeg
+  - pyzmq
+prefix: /home/grievous/miniconda3/envs/grievous

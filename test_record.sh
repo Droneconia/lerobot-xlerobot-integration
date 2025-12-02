@@ -48,7 +48,7 @@
 # Configuration
 TASK="${TASK:-Test record}"
 REQUESTED_VERSION="${VERSION:-1}"
-EPISODES="${EPISODES:-50}"
+EPISODES="${EPISODES:-10}"
 EPISODE_TIME="${EPISODE_TIME:-120}"  # 2 min safety timeout (use → to end early)
 RESET_TIME="${RESET_TIME:-60}"       # 1 min reset window (use → to skip early)
 DATASET_NAME="${DATASET_NAME:-test-record}"
@@ -91,16 +91,16 @@ sleep 3
 # Run recording
 lerobot-record \
     --robot.type=grievous_client \
-    --robot.remote_ip=192.168.50.148 \
+    --robot.remote_ip=192.168.50.47 \
     --robot.cameras='{
         left_wrist: {type: opencv, index_or_path: /dev/video6, width: 640, height: 480, fps: 30},
         right_wrist: {type: opencv, index_or_path: /dev/video8, width: 640, height: 480, fps: 30},
-        head: {type: intelrealsense, serial_number_or_name: 032622074046, width: 1280, height: 720, fps: 30}
+        head: {type: intelrealsense, serial_number_or_name: 032622074046, width: 640, height: 480, fps: 30}
     }' \
     --teleop.type=grievous_leader \
     --teleop.left_arm_port=/dev/ttyACM3 \
     --teleop.right_arm_port=/dev/ttyACM2 \
-    --teleop.remote_ip=192.168.50.148 \
+    --teleop.remote_ip=192.168.50.47 \
     --teleop.port_zmq_cmd=5555 \
     --teleop.id=grievous_leader \
     --dataset.repo_id="Grievous-Robot/${DATASET_NAME}-v${VERSION}" \

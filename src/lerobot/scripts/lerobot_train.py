@@ -218,6 +218,7 @@ def train(cfg: TrainPipelineConfig, accelerator: Accelerator | None = None):
     if cfg.policy.pretrained_path is not None:
         processor_kwargs["preprocessor_overrides"] = {
             "device_processor": {"device": device.type},
+            "rename_observations_processor": {"rename_map": cfg.rename_map},
             "normalizer_processor": {
                 "stats": dataset.meta.stats,
                 "features": {**policy.config.input_features, **policy.config.output_features},
