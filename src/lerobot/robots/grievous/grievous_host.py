@@ -355,15 +355,6 @@ def main():
                 last_observation = robot.get_observation()
             step_times["get_observation"] = (time.perf_counter() - step_start) * 1000  # ms
             
-            # 4. Get last action from teleop thread
-            step_start = time.perf_counter()
-            robot_action = teleop_thread.get_last_action()
-            step_times["get_action_from_thread"] = (time.perf_counter() - step_start) * 1000  # ms
-
-            if robot_action:
-                robot_action["head_motor_1.pos"] = last_observation.get("head_motor_1.pos", 0.0)
-                robot_action["head_motor_2.pos"] = last_observation.get("head_motor_2.pos", 0.0)
-            
             # 4. Encode camera images to base64 for network transmission
             step_start = time.perf_counter()
             encode_times = {}
@@ -392,8 +383,17 @@ def main():
                 encode_times[cam_key] = (time.perf_counter() - cam_start) * 1000  # ms
             step_times["encode_cameras"] = (time.perf_counter() - step_start) * 1000  # ms
             step_times["encode_per_camera"] = encode_times
+
+            # 5. Get last action from teleop thread
+            step_start = time.perf_counter()
+            robot_action = teleop_thread.get_last_action()
+            step_times["get_action_from_thread"] = (time.perf_counter() - step_start) * 1000  # ms
+
+            if robot_action:
+                robot_action["head_motor_1.pos"] = last_observation.get("head_motor_1.pos", 0.0)
+                robot_action["head_motor_2.pos"] = last_observation.get("head_motor_2.pos", 0.0)
             
-            # 5. Send processed robot_action to remote client via command socket
+            # 6. Send processed robot_action to remote client via command socket
             step_start = time.perf_counter()
             try:
                 # Send processed action for client feedback
@@ -404,7 +404,7 @@ def main():
                 logger.error(f"Failed to send action feedback: {e}")
             step_times["send_action_feedback"] = (time.perf_counter() - step_start) * 1000  # ms
             
-            # 6. Send observation to remote client
+            # 7. Send observation to remote client
             step_start = time.perf_counter()
             try:
                 host.zmq_observation_socket.send_string(
@@ -416,7 +416,7 @@ def main():
                 logger.error(f"Failed to send observation: {e}")
             step_times["send_observation"] = (time.perf_counter() - step_start) * 1000  # ms
             
-            # 7. Rate limiting
+            # 8. Rate limiting
             step_start = time.perf_counter()
             elapsed = time.perf_counter() - loop_start_time
             sleep_time = max(1 / host.max_loop_freq_hz - elapsed, 0)
