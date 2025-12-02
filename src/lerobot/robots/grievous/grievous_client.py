@@ -475,8 +475,8 @@ class GrievousClient(Robot):
 
         # Send action via ZMQ
         try:
-            # self.zmq_cmd_socket.send_string(json.dumps(action), flags=zmq.NOBLOCK)
-            pass
+            self.zmq_cmd_socket.send_string(json.dumps(action), flags=zmq.NOBLOCK)
+            logger.debug("Action sent successfully via ZMQ")
         except zmq.Again:
             logger.warning("Command socket busy, dropping action")
         except Exception as e:
