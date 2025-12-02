@@ -189,9 +189,9 @@ class Grievous(Robot):
                 action[key] = value
         
         # Add current head motor positions to keep head stationary at manually-set position
-        obs = self.xlerobot.get_observation()
-        action["head_motor_1.pos"] = obs.get("head_motor_1.pos", 0.0)
-        action["head_motor_2.pos"] = obs.get("head_motor_2.pos", 0.0)
+        # obs = self.xlerobot.get_observation()
+        # action["head_motor_1.pos"] = obs.get("head_motor_1.pos", 0.0)
+        # action["head_motor_2.pos"] = obs.get("head_motor_2.pos", 0.0)
         
         # Add zero base velocities to keep base stationary
         action["x.vel"] = 0.0

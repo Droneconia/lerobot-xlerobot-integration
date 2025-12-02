@@ -292,6 +292,10 @@ def main():
             step_start = time.perf_counter()
             robot_action = teleop_thread.get_last_action()
             step_times["get_action_from_thread"] = (time.perf_counter() - step_start) * 1000  # ms
+
+            if robot_action:
+                robot_action["head_motor_1.pos"] = last_observation.get("head_motor_1.pos", 0.0)
+                robot_action["head_motor_2.pos"] = last_observation.get("head_motor_2.pos", 0.0)
             
             # 4. Encode camera images to base64 for network transmission
             step_start = time.perf_counter()
