@@ -120,7 +120,9 @@ def main():
     # They are available for future overwrite functionality
     
     logger.info("Starting GrievousInferenceHost daemon...")
-    host_config = GrievousHostConfig()
+    # For Phase 6.2 testing: use reasonable connection time for manual testing
+    # TODO: Revert to default connection_time_s=3600 after Phase 6.2 testing
+    host_config = GrievousHostConfig(connection_time_s=300)  # 5 minutes for manual testing
     host = GrievousInferenceHost(host_config)
     
     last_cmd_time = time.time()

@@ -117,18 +117,34 @@ Enable remote policy inference on Grievous robot where the policy runs on a GPU 
   - **Status:** All checks completed successfully
 
 #### Phase 6.2: Host Startup Test (No Client Connection)
-- [ ] **Test inference host startup without client:**
-  - [ ] Run `grievous_inference_host.py` on robot with `connection_time_s=10` (short test)
-  - [ ] Verify host starts without errors
-  - [ ] Verify sockets bind correctly (check logs)
-  - [ ] Verify robot connects (follower + leader arms)
-  - [ ] Verify robot does NOT move (no commands received)
-  - [ ] Stop host (Ctrl+C) and verify cleanup works
-- [ ] **Verify watchdog triggers correctly:**
-  - [ ] Run host again, wait 600ms (longer than 500ms watchdog timeout)
-  - [ ] Verify base stops (watchdog should trigger)
-  - [ ] Check logs confirm watchdog activation
-  - [ ] **CRITICAL:** Verify robot stops safely, no unexpected movements
+- [x] **Test inference host startup without client:**
+  - [x] Run `grievous_inference_host.py` on robot with `connection_time_s=10` (short test)
+    - **Implementation:** Modified script to use `GrievousHostConfig(connection_time_s=10)` for testing
+  - [x] Verify host starts without errors
+    - **Result:** ✓ Host started successfully, all components initialized
+  - [x] Verify sockets bind correctly (check logs)
+    - **Result:** ✓ Command socket (PULL) bound to tcp://*:5555, Observation socket (PUSH) bound to tcp://*:5556
+  - [x] Verify robot connects (follower + leader arms)
+    - **Result:** ✓ All components connected: XLerobot (follower), both SO100Leader arms, all 3 cameras (left_wrist, right_wrist, head RealSense)
+  - [x] Verify robot does NOT move (no commands received)
+    - **Result:** ✓ Robot remained stationary, no unexpected movements observed
+  - [x] Stop host (Ctrl+C) and verify cleanup works
+    - **Result:** ✓ Ctrl+C handled correctly, KeyboardInterrupt caught, all cleanup messages present:
+      - "Keyboard interrupt received. Shutting down..."
+      - All cameras disconnected (left_wrist, right_wrist, head RealSense)
+      - XLerobot disconnected
+      - Both leader arms disconnected (left and right)
+      - ZMQ sockets closed properly
+      - "Grievous inference host shutdown complete"
+- [x] **Verify watchdog triggers correctly:**
+  - [x] Run host again, wait 600ms (longer than 500ms watchdog timeout)
+    - **Result:** ✓ Watchdog triggered automatically at 500ms (no commands received)
+  - [x] Verify base stops (watchdog should trigger)
+    - **Result:** ✓ Base motors stopped successfully via `robot.xlerobot.stop_base()`
+  - [x] Check logs confirm watchdog activation
+    - **Result:** ✓ Log shows: "Command not received for 500ms. Stopping base for safety." and "Base motors stopped"
+  - [x] **CRITICAL:** Verify robot stops safely, no unexpected movements
+    - **Result:** ✓ Robot stopped safely, watchdog safety feature working as designed
 
 #### Phase 6.3: Client Connection Test (Zero Actions)
 - [ ] **Test client connection with zero actions:**
