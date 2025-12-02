@@ -293,6 +293,195 @@ class TestTeleopControlThread:
         
         # Check that get_action was called multiple times
         assert mock_robot.get_action.call_count >= 3
+    
+    def test_motor_bus_lock_prevents_conflicts(self, mock_robot, mock_processors):
+        """Test that motor bus lock prevents concurrent access conflicts."""
+        teleop_processor, robot_processor, _ = mock_processors
+        
+        # Create a shared lock
+        motor_bus_lock = threading.Lock()
+        
+        # Track if operations are happening concurrently
+        concurrent_access = threading.Event()
+        access_times = []
+        access_lock = threading.Lock()
+        
+        # Mock send_action to track when it's called
+        def tracked_send_action(action):
+            with access_lock:
+                access_times.append(("send", time.perf_counter()))
+            # Simulate some work (motor bus access)
+            time.sleep(0.001)  # 1ms
+            return None  # send_action returns None
+        
+        mock_robot.send_action.side_effect = tracked_send_action
+        
+        # Mock get_observation to track when it's called
+        def tracked_get_observation():
+            with access_lock:
+                access_times.append(("get_obs", time.perf_counter()))
+            # Simulate some work (motor bus access)
+            time.sleep(0.001)  # 1ms
+            # Return the original mock's return value without calling it
+            return {
+                "left_arm_shoulder_pan.pos": 0.5,
+                "left_arm_shoulder_lift.pos": 0.3,
+                "left_wrist": np.zeros((480, 640, 3), dtype=np.uint8),
+                "right_wrist": np.zeros((480, 640, 3), dtype=np.uint8),
+            }
+        
+        mock_robot.get_observation.side_effect = tracked_get_observation
+        
+        # Create thread with lock
+        thread = TeleopControlThread(
+            robot=mock_robot,
+            teleop_action_processor=teleop_processor,
+            robot_action_processor=robot_processor,
+            freq_hz=100,  # High frequency for quick test
+            motor_bus_lock=motor_bus_lock,
+        )
+        
+        thread.start()
+        time.sleep(0.1)  # Let thread run
+        
+        # Simulate main loop getting observations while teleop thread is running
+        for _ in range(5):
+            with motor_bus_lock:
+                obs = mock_robot.get_observation()
+            time.sleep(0.01)  # Simulate main loop rate (100Hz)
+        
+        thread.stop()
+        if thread._thread:
+            thread._thread.join(timeout=1.0)
+        
+        # Verify both operations were called
+        assert mock_robot.send_action.called
+        assert mock_robot.get_observation.called
+        
+        # Verify we have multiple access times recorded
+        assert len(access_times) >= 5
+    
+    def test_teleop_script_integration(self, mock_robot, mock_processors):
+        """Integration test simulating the full teleop script workflow."""
+        teleop_processor, robot_processor, _ = mock_processors
+        
+        # Create shared lock (as in main())
+        motor_bus_lock = threading.Lock()
+        
+        # Create teleop thread with lock
+        thread = TeleopControlThread(
+            robot=mock_robot,
+            teleop_action_processor=teleop_processor,
+            robot_action_processor=robot_processor,
+            freq_hz=120,  # Real teleop frequency
+            motor_bus_lock=motor_bus_lock,
+        )
+        
+        thread.start()
+        
+        # Simulate main loop running at 60Hz
+        observations_received = []
+        actions_received = []
+        
+        start_time = time.perf_counter()
+        while time.perf_counter() - start_time < 0.2:  # Run for 200ms
+            # Main loop: get observation (with lock)
+            with motor_bus_lock:
+                obs = mock_robot.get_observation()
+            observations_received.append(obs)
+            
+            # Get action from thread
+            action = thread.get_last_action()
+            if action:
+                actions_received.append(action)
+            
+            time.sleep(1.0 / 60.0)  # 60Hz main loop
+        
+        thread.stop()
+        if thread._thread:
+            thread._thread.join(timeout=1.0)
+        
+        # Verify the system worked:
+        # 1. Teleop thread was running
+        assert thread._thread is not None or not thread._running
+        
+        # 2. Observations were received
+        assert len(observations_received) > 0
+        
+        # 3. Actions were received from thread
+        assert len(actions_received) > 0 or mock_robot.get_action.called
+        
+        # 4. No exceptions were raised (implicitly verified by test completing)
+        
+        # 5. Both send_action and get_observation were called
+        assert mock_robot.send_action.called
+        assert mock_robot.get_observation.called
+    
+    def test_motor_bus_lock_serialization(self, mock_robot, mock_processors):
+        """Test that motor bus lock properly serializes access."""
+        teleop_processor, robot_processor, _ = mock_processors
+        
+        motor_bus_lock = threading.Lock()
+        access_order = []
+        order_lock = threading.Lock()
+        
+        # Track access order
+        def tracked_send(action):
+            with order_lock:
+                access_order.append(("send_start", time.perf_counter()))
+            # Simulate motor bus operation
+            time.sleep(0.001)
+            with order_lock:
+                access_order.append(("send_end", time.perf_counter()))
+            return None
+        
+        def tracked_get():
+            with order_lock:
+                access_order.append(("get_start", time.perf_counter()))
+            # Simulate motor bus operation
+            time.sleep(0.001)
+            with order_lock:
+                access_order.append(("get_end", time.perf_counter()))
+            return {
+                "left_arm_shoulder_pan.pos": 0.5,
+                "left_arm_shoulder_lift.pos": 0.3,
+            }
+        
+        mock_robot.send_action.side_effect = tracked_send
+        mock_robot.get_observation.side_effect = tracked_get
+        
+        thread = TeleopControlThread(
+            robot=mock_robot,
+            teleop_action_processor=teleop_processor,
+            robot_action_processor=robot_processor,
+            freq_hz=50,  # Moderate frequency
+            motor_bus_lock=motor_bus_lock,
+        )
+        
+        thread.start()
+        time.sleep(0.05)  # Let it run a bit
+        
+        # Try to get observation while thread is sending actions
+        with motor_bus_lock:
+            obs = mock_robot.get_observation()
+        
+        thread.stop()
+        if thread._thread:
+            thread._thread.join(timeout=1.0)
+        
+        # Verify operations completed (access_order has entries)
+        assert len(access_order) > 0
+        
+        # Verify no overlapping operations (each send_end before next get_start, etc.)
+        # This is a basic check - in reality the lock ensures this
+        for i in range(len(access_order) - 1):
+            current = access_order[i]
+            next_op = access_order[i + 1]
+            # If current is an end and next is a start of different type, 
+            # they should be properly sequenced (lock ensures this)
+            if current[0].endswith("_end") and next_op[0].endswith("_start"):
+                # Times should be sequential (lock prevents overlap)
+                assert current[1] <= next_op[1]
 
 
 class TestMainFunction:

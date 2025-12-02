@@ -34,6 +34,7 @@ import json
 import logging
 import threading
 import time
+from typing import Optional
 
 import cv2
 import numpy as np
@@ -114,6 +115,7 @@ class TeleopControlThread:
         teleop_action_processor,
         robot_action_processor,
         freq_hz: int = 120,
+        motor_bus_lock: Optional[threading.Lock] = None,
     ):
         """Initialize teleop control thread.
         
@@ -122,11 +124,13 @@ class TeleopControlThread:
             teleop_action_processor: Processor for teleop actions
             robot_action_processor: Processor for robot actions
             freq_hz: Refresh rate for teleop control loop
+            motor_bus_lock: Shared lock for serializing motor bus access
         """
         self.robot = robot
         self.teleop_action_processor = teleop_action_processor
         self.robot_action_processor = robot_action_processor
         self.freq_hz = freq_hz
+        self.motor_bus_lock = motor_bus_lock
         
         # Thread-safe storage for last action and observation
         self._lock = threading.Lock()
@@ -165,12 +169,15 @@ class TeleopControlThread:
             loop_start = time.perf_counter()
             
             try:
-                
-                # Get action from leader arms
+                # Get action from leader arms (doesn't use motor bus)
                 robot_action = self.robot.get_action()
                 
-                # Send action to follower
-                self.robot.send_action(robot_action)
+                # Send action to follower (uses motor bus - must be serialized)
+                if self.motor_bus_lock:
+                    with self.motor_bus_lock:
+                        self.robot.send_action(robot_action)
+                else:
+                    self.robot.send_action(robot_action)
                 
                 # Update thread-safe storage
                 with self._lock:
@@ -226,12 +233,16 @@ def main():
 
     teleop_action_processor, robot_action_processor, robot_observation_processor = make_default_processors()
     
+    # Create shared lock for motor bus access (prevents concurrent access conflicts)
+    motor_bus_lock = threading.Lock()
+    
     # Start teleop control thread (runs at higher refresh rate)
     teleop_thread = TeleopControlThread(
         robot=robot,
         teleop_action_processor=teleop_action_processor,
         robot_action_processor=robot_action_processor,
         freq_hz=host.teleop_freq_hz,
+        motor_bus_lock=motor_bus_lock,
     )
     teleop_thread.start()
     
@@ -284,8 +295,10 @@ def main():
             step_times["watchdog_check"] = (time.perf_counter() - step_start) * 1000  # ms
             
             # 3. Get observation from Grievous (follower + leader + cameras)
+            # Uses motor bus - must be serialized with teleop thread
             step_start = time.perf_counter()
-            last_observation = robot.get_observation()
+            with motor_bus_lock:
+                last_observation = robot.get_observation()
             step_times["get_observation"] = (time.perf_counter() - step_start) * 1000  # ms
             
             # 4. Get last action from teleop thread
