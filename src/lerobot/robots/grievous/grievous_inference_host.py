@@ -142,6 +142,12 @@ def main():
                 msg = host.zmq_cmd_socket.recv_string(zmq.NOBLOCK)
                 data = dict(json.loads(msg))
                 
+                # DEBUG: Log first action to see keys/values
+                if not hasattr(host, '_logged_first_action'):
+                    logger.info(f"FIRST ACTION KEYS: {list(data.keys())}")
+                    logger.info(f"FIRST ACTION VALUES (first 3): {dict(list(data.items())[:3])}")
+                    host._logged_first_action = True
+                
                 # Execute action on follower (XLerobot component)
                 robot.send_action(data)
                 
