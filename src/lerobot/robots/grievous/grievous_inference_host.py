@@ -64,7 +64,7 @@ class GrievousInferenceHost:
         
         # Command socket: RECEIVE actions from client (PULL)
         self.zmq_cmd_socket = self.zmq_context.socket(zmq.PULL)
-        self.zmq_cmd_socket.setsockopt(zmq.CONFLATE, 1)  # Keep only latest message
+        # Note: CONFLATE doesn't work with PULL sockets - removed for proper message delivery
         self.zmq_cmd_socket.bind(f"tcp://*:{config.port_zmq_cmd}")
         logger.info(f"Command socket (PULL) bound to tcp://*:{config.port_zmq_cmd}")
         
@@ -148,7 +148,7 @@ def main():
                 # Reset watchdog timer
                 last_cmd_time = time.time()
                 watchdog_active = False
-                logger.debug(f"Action received and executed: {len(data)} keys")
+                logger.info(f"Action received and executed: {len(data)} keys")  # Changed to INFO for visibility
                 
             except zmq.Again:
                 # No command available (non-blocking)
