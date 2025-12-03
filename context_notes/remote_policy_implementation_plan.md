@@ -3,6 +3,10 @@
 ## Goal
 Enable remote policy inference on Grievous robot where the policy runs on a GPU server (e.g., RunPod) while the robot hardware runs on a local host (RPi5/Laptop). The implementation follows the proven `xlerobot` pattern: simple bidirectional communication with watchdog safety. **Recording mode remains completely untouched** by creating a separate inference host script.
 
+## Test Organization
+
+All test scripts have been moved to `tests/grievous_inference/` directory for better organization.
+
 ## Implementation Checklist
 
 ### Phase 1: Verification & Understanding
@@ -167,37 +171,40 @@ Enable remote policy inference on Grievous robot where the policy runs on a GPU 
   - [x] Stop both scripts, verify cleanup
     - **Result:** ✓ Client disconnected cleanly, no errors in cleanup
 
-#### Phase 6.4: Stationary Action Test (Hold Position)
-- [x] **Created test script:** `test_phase_6_4_stationary_actions.py`
-  - **Features:** Gets current position, creates hold-position action, sends at 10Hz for 5 seconds, verifies position stability
+#### Phase 6.4: Stationary Action Test (Hold Position) - ✅ COMPLETE
 - [x] **Test sending actions that maintain current position:**
   - [x] Run `grievous_inference_host.py` on robot
-    - **Status:** Host running and receiving commands
-  - [x] On laptop, run `test_phase_6_4_stationary_actions.py`
-    - **Result:** ✓ Test completed successfully
-  - [x] Verify actions are sent successfully
-    - **Result:** ✓ 50 actions sent in 5.0s (10.0 actions/sec average)
-    - **Note:** Many "Command socket busy, dropping action" warnings observed
-    - **Diagnostic:** Created `test_phase_6_4_diagnostic.py` - shows 100% send success rate despite warnings
-    - **Finding:** Warnings appear but actions still get through (ZMQ NOBLOCK temporarily fails but retries succeed)
-    - **Action needed:** Check host logs for "Action received and executed" messages to confirm host is processing actions
-      - **Where:** Terminal/console where you ran `grievous_inference_host.py` on the robot
-      - **Look for:** "Action received and executed: 17 keys" messages appearing when actions are sent
-      - **IMPORTANT:** Make sure you're running `grievous_inference_host.py` (inference mode), NOT `grievous_host.py` (recording mode)
-      - **Clarification:** Created `context_notes/host_script_clarification.md` explaining the difference
-      - **Why messages seemed to work:** Created `context_notes/why_push_push_seemed_to_work.md` - messages were queued but never delivered because PUSH→PUSH is invalid
-      - **How to run:** Created `HOW_TO_RUN_INFERENCE_HOST.md` with correct commands
-      - **Action needed:** Verify robot actually moved during diagnostic test (confirms commands are working, not just staying still)
-      - **CRITICAL BUG FOUND:** `zmq.CONFLATE` option on PULL socket was preventing message reception. Removed CONFLATE from command socket (line 67 in `grievous_inference_host.py`). CONFLATE only works properly with certain socket types, not PULL sockets.
-      - **How to rerun:** Run `test_phase_6_4_diagnostic.py` again - it will prompt before starting movement
-      - **What to watch:** Left arm shoulder_pan joint should rotate ~1.15 degrees (0.02 rad)
-    - **Documentation:** Created `context_notes/zmq_noblock_explanation.md` explaining ZMQ buffer behavior
-  - [x] Verify robot maintains position (no movement)
-    - **Result:** ✓ Position maintained (all joints within 0.01 rad change)
-  - [x] Run for 5 seconds, verify stability
-    - **Result:** ✓ Test ran for full 5.0 seconds, robot remained stable
+    - **Result:** ✓ Host running and receiving commands successfully
+  - [x] Verify actions are sent successfully from laptop
+    - **Result:** ✓ 15 actions sent per test run at 5Hz (100% success rate)
+  - [x] Verify host receives actions
+    - **Result:** ✓ 25 "Action received and executed: 17 keys" messages per test run
+    - **Communication latency:** ~200ms per action at 5Hz send rate
+  - [x] Verify robot responds to commands
+    - **Test:** Sent +1.15 degree offset to left_arm_shoulder_pan
+    - **Result:** ✓ Robot arm moved visibly (~1.15 degrees rotation), then returned to original position
+    - **Observation:** Movement was smooth and controlled, exactly as expected
+  - [x] Verify watchdog functionality
+    - **Result:** ✓ Watchdog triggers correctly after 500ms of no commands
+    - **Log confirmation:** "Command not received for 500ms. Stopping base for safety."
   - [x] **CRITICAL:** Robot should not drift or move unexpectedly
     - **Result:** ✓ No drift or unexpected movement observed, position stability verified
+
+**Critical Bugs Fixed:**
+1. **ZMQ CONFLATE on PULL socket:** Removed `zmq.CONFLATE` option from command socket (line 67 in `grievous_inference_host.py`). CONFLATE is incompatible with PULL sockets and was blocking all message reception.
+2. **Unit verification:** Confirmed observations and actions both use degrees (consistent with dataset recording configuration).
+
+**Communication Status:**
+- ✅ ZMQ PUSH→PULL working correctly (laptop → robot)
+- ✅ ZMQ PUSH→PULL working correctly (robot → laptop)
+- ✅ Actions received and executed on robot
+- ✅ Observations received on laptop
+- ✅ Watchdog safety mechanism operational
+
+**Documentation Created:**
+- `context_notes/why_push_push_seemed_to_work.md` - Explains why PUSH→PUSH appeared to work but didn't
+- `context_notes/zmq_noblock_explanation.md` - Explains ZMQ buffer behavior and NOBLOCK flag
+- `HOW_TO_RUN_INFERENCE_HOST.md` - Instructions for running inference host correctly
 
 #### Phase 6.5: Small Movement Test (Minimal Displacement)
 - [ ] **Test very small movements:**
