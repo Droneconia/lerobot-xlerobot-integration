@@ -112,8 +112,6 @@ class TeleopControlThread:
     def __init__(
         self,
         robot: "Grievous",
-        teleop_action_processor,
-        robot_action_processor,
         freq_hz: int = 120,
         motor_bus_lock: Optional[threading.Lock] = None,
     ):
@@ -127,15 +125,12 @@ class TeleopControlThread:
             motor_bus_lock: Shared lock for serializing motor bus access
         """
         self.robot = robot
-        self.teleop_action_processor = teleop_action_processor
-        self.robot_action_processor = robot_action_processor
         self.freq_hz = freq_hz
         self.motor_bus_lock = motor_bus_lock
         
         # Thread-safe storage for last action and observation
         self._lock = threading.Lock()
         self._last_robot_action: dict = {}
-        self._last_observation: dict = {}
         self._running = False
         self._thread: threading.Thread | None = None
         
@@ -143,6 +138,7 @@ class TeleopControlThread:
         self._timing_lock = threading.Lock()
         self._timing_data: dict[str, list[float]] = {}
         self._last_print_time = time.perf_counter()
+        self._timing_data_start_time: float | None = None
     
     def start(self) -> None:
         """Start the teleop control thread."""
@@ -162,7 +158,7 @@ class TeleopControlThread:
         
         self._running = False
         if self._thread:
-            self._thread.join(timeout=2.0)
+            self._thread.join(timeout=5.0)
             if self._thread.is_alive():
                 logger.warning("Teleop control thread did not stop gracefully")
             else:
@@ -178,17 +174,33 @@ class TeleopControlThread:
             try:
                 # Get action from leader arms (doesn't use motor bus)
                 robot_action = self.robot.get_action()
+
+                action_valid = True
+                if robot_action is None:
+                    logger.warning("Received None action, skipping send")
+                    action_valid = False
+                elif not isinstance(robot_action, dict):
+                    logger.error(f"Invalid action type: {type(robot_action)}, expected dict. Skipping send.")
+                    action_valid = False
+                elif not robot_action:
+                    logger.warning("Received empty action dict, skipping send")
+                    action_valid = False
                 
                 # Send action to follower (uses motor bus - must be serialized)
-                if self.motor_bus_lock:
-                    with self.motor_bus_lock:
+                if action_valid:
+                    if self.motor_bus_lock:
+                        with self.motor_bus_lock:
+                            self.robot.send_action(robot_action)
+                    else:    
                         self.robot.send_action(robot_action)
+
+                    # Update thread-safe storage
+                    with self._lock:
+                        self._last_robot_action = robot_action
                 else:
-                    self.robot.send_action(robot_action)
+                    logger.warning("Invalid action, skipping send")
                 
-                # Update thread-safe storage
-                with self._lock:
-                    self._last_robot_action = robot_action
+                
                     
             except Exception as e:
                 logger.error(f"Error in teleop control loop: {e}", exc_info=True)
@@ -205,6 +217,12 @@ class TeleopControlThread:
             # Collect timing data
             total_loop_time = (time.perf_counter() - loop_start) * 1000  # ms
             with self._timing_lock:
+                current_time = time.perf_counter()
+                
+                # Track when timing data collection started
+                if self._timing_data_start_time is None:
+                    self._timing_data_start_time = current_time
+                
                 # Store timing data for each category
                 if "control" not in self._timing_data:
                     self._timing_data["control"] = []
@@ -218,11 +236,9 @@ class TeleopControlThread:
                     self._timing_data["total_loop_time"] = []
                 self._timing_data["total_loop_time"].append(total_loop_time)
                 
-                current_time = time.perf_counter()
-                
                 # Print averages every second
                 if current_time - self._last_print_time >= 1.0:
-                    if self._timing_data:
+                    if self._timing_data and self._timing_data_start_time is not None:
                         timing_parts = []
                         for key in sorted(self._timing_data.keys()):
                             if self._timing_data[key]:
@@ -231,15 +247,17 @@ class TeleopControlThread:
                                 max_time = max(self._timing_data[key])
                                 timing_parts.append(f"{key}: avg={avg_time:.2f}ms min={min_time:.2f}ms max={max_time:.2f}ms")
                         
-                        # Calculate actual frequency
+                        # Calculate actual frequency using the actual time span of collected data
                         loop_count = len(self._timing_data.get("total_loop_time", []))
-                        actual_freq = loop_count / (current_time - self._last_print_time)
+                        actual_time_span = current_time - self._timing_data_start_time
+                        actual_freq = loop_count / actual_time_span if actual_time_span > 0 else 0
                         
                         timing_str = " | ".join(timing_parts)
                         print(f"TeleopControlThread timing - Freq: {actual_freq:.1f}Hz | Loops: {loop_count} | {timing_str}")
                     
                     # Reset timing data
                     self._timing_data.clear()
+                    self._timing_data_start_time = None
                     self._last_print_time = current_time
     
     def get_last_action(self) -> dict:
@@ -289,8 +307,6 @@ def main():
     # Start teleop control thread (runs at higher refresh rate)
     teleop_thread = TeleopControlThread(
         robot=robot,
-        teleop_action_processor=teleop_action_processor,
-        robot_action_processor=robot_action_processor,
         freq_hz=host.teleop_freq_hz,
         motor_bus_lock=motor_bus_lock,
     )
@@ -303,6 +319,7 @@ def main():
     # Timing collection for periodic reporting
     timing_data: dict[str, list[float]] = {}
     last_print_time = time.perf_counter()
+    timing_data_start_time: float | None = None
     
     try:
         # Main control loop
@@ -324,9 +341,9 @@ def main():
             #     robot.send_action(data)
             #     print(f"Sent action to follower: {data}")
                 
-            #     # Reset watchdog timer
-            #     last_cmd_time = time.time()
-            #     watchdog_active = False
+            # Reset watchdog timer
+            last_cmd_time = time.time()
+            watchdog_active = False
                 
             # except zmq.Again:
             #     # No command available (non-blocking)
@@ -425,6 +442,12 @@ def main():
             
             # Collect timing data
             total_loop_time = (time.perf_counter() - loop_start_time) * 1000  # ms
+            current_time = time.perf_counter()
+            
+            # Track when timing data collection started
+            if timing_data_start_time is None:
+                timing_data_start_time = current_time
+            
             for key, value in step_times.items():
                 if key != "encode_per_camera":
                     if key not in timing_data:
@@ -444,9 +467,8 @@ def main():
             timing_data["total_loop_time"].append(total_loop_time)
             
             # Print averages every second
-            current_time = time.perf_counter()
             if current_time - last_print_time >= 1.0:
-                if timing_data:
+                if timing_data and timing_data_start_time is not None:
                     timing_parts = []
                     for key in sorted(timing_data.keys()):
                         if timing_data[key]:
@@ -455,15 +477,17 @@ def main():
                             max_time = max(timing_data[key])
                             timing_parts.append(f"{key}: avg={avg_time:.2f}ms min={min_time:.2f}ms max={max_time:.2f}ms")
                     
-                    # Calculate actual frequency
+                    # Calculate actual frequency using the actual time span of collected data
                     loop_count = len(timing_data.get("total_loop_time", []))
-                    actual_freq = loop_count / (current_time - last_print_time)
+                    actual_time_span = current_time - timing_data_start_time
+                    actual_freq = loop_count / actual_time_span if actual_time_span > 0 else 0
                     
                     timing_str = " | ".join(timing_parts)
                     print(f"Main loop timing - Freq: {actual_freq:.1f}Hz | Loops: {loop_count} | {timing_str}")
                 
                 # Reset timing data
                 timing_data.clear()
+                timing_data_start_time = None
                 last_print_time = current_time
             
             duration = time.perf_counter() - start
