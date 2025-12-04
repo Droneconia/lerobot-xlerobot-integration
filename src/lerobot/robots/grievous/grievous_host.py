@@ -136,7 +136,7 @@ class TeleopControlThread:
         
         # Timing collection for periodic reporting
         self._timing_lock = threading.Lock()
-        self._timing_data: dict[str, list[float]] = {}
+        self._loop_times: list[float] = []  # Store loop times to calculate frequencies
         self._last_print_time = time.perf_counter()
         self._timing_data_start_time: float | None = None
     
@@ -204,18 +204,17 @@ class TeleopControlThread:
                     
             except Exception as e:
                 logger.error(f"Error in teleop control loop: {e}", exc_info=True)
-            control_time = (time.perf_counter() - control_start) * 1000  # ms
             
-            # Rate limiting
+            # Rate limiting - sleep at the end to reach desired frequency
             elapsed = time.perf_counter() - loop_start
             sleep_time = max(1 / self.freq_hz - elapsed, 0)
-            sleep_start = time.perf_counter()
             if sleep_time > 0:
                 time.sleep(sleep_time)
-            actual_sleep_time = (time.perf_counter() - sleep_start) * 1000  # ms
-            
+                
             # Collect timing data
             total_loop_time = (time.perf_counter() - loop_start) * 1000  # ms
+            loop_frequency = 1000.0 / total_loop_time if total_loop_time > 0 else 0  # Hz
+            
             with self._timing_lock:
                 current_time = time.perf_counter()
                 
@@ -223,42 +222,25 @@ class TeleopControlThread:
                 if self._timing_data_start_time is None:
                     self._timing_data_start_time = current_time
                 
-                # Store timing data for each category
-                if "control" not in self._timing_data:
-                    self._timing_data["control"] = []
-                self._timing_data["control"].append(control_time)
+                # Store loop frequency
+                self._loop_times.append(loop_frequency)
                 
-                if "sleep" not in self._timing_data:
-                    self._timing_data["sleep"] = []
-                self._timing_data["sleep"].append(actual_sleep_time)
-                
-                if "total_loop_time" not in self._timing_data:
-                    self._timing_data["total_loop_time"] = []
-                self._timing_data["total_loop_time"].append(total_loop_time)
-                
-                # Print averages every second
+                # Print frequency stats every second
                 if current_time - self._last_print_time >= 1.0:
-                    if self._timing_data and self._timing_data_start_time is not None:
-                        timing_parts = []
-                        for key in sorted(self._timing_data.keys()):
-                            if self._timing_data[key]:
-                                avg_time = sum(self._timing_data[key]) / len(self._timing_data[key])
-                                min_time = min(self._timing_data[key])
-                                max_time = max(self._timing_data[key])
-                                timing_parts.append(f"{key}: avg={avg_time:.2f}ms min={min_time:.2f}ms max={max_time:.2f}ms")
-                        
-                        # Calculate actual frequency using the actual time span of collected data
-                        loop_count = len(self._timing_data.get("total_loop_time", []))
+                    if self._loop_times:
+                        loop_count = len(self._loop_times)
                         actual_time_span = current_time - self._timing_data_start_time
-                        actual_freq = loop_count / actual_time_span if actual_time_span > 0 else 0
+                        min_freq = min(self._loop_times)
+                        max_freq = max(self._loop_times)
+                        overall_freq = loop_count / actual_time_span if actual_time_span > 0 else 0
                         
-                        timing_str = " | ".join(timing_parts)
-                        print(f"TeleopControlThread timing - Freq: {actual_freq:.1f}Hz | Loops: {loop_count} | {timing_str}")
+                        print(f"TeleopControlThread - Loops: {loop_count} | Overall Freq: {overall_freq:.1f}Hz | Min: {min_freq:.1f}Hz | Max: {max_freq:.1f}Hz")
                     
                     # Reset timing data
-                    self._timing_data.clear()
+                    self._loop_times.clear()
                     self._timing_data_start_time = None
                     self._last_print_time = current_time
+            
     
     def get_last_action(self) -> dict:
         """Get the last processed robot action (thread-safe).
@@ -317,7 +299,7 @@ def main():
     logger.info("Waiting for commands from remote client...")
     
     # Timing collection for periodic reporting
-    timing_data: dict[str, list[float]] = {}
+    loop_times: list[float] = []  # Store loop frequencies
     last_print_time = time.perf_counter()
     timing_data_start_time: float | None = None
     
@@ -442,51 +424,30 @@ def main():
             
             # Collect timing data
             total_loop_time = (time.perf_counter() - loop_start_time) * 1000  # ms
+            loop_frequency = 1000.0 / total_loop_time if total_loop_time > 0 else 0  # Hz
+            
             current_time = time.perf_counter()
             
             # Track when timing data collection started
             if timing_data_start_time is None:
                 timing_data_start_time = current_time
             
-            for key, value in step_times.items():
-                if key != "encode_per_camera":
-                    if key not in timing_data:
-                        timing_data[key] = []
-                    timing_data[key].append(value)
+            # Store loop frequency
+            loop_times.append(loop_frequency)
             
-            # Handle per-camera encoding times separately
-            if "encode_per_camera" in step_times:
-                for cam_key, cam_time in step_times["encode_per_camera"].items():
-                    cam_timing_key = f"encode_{cam_key}"
-                    if cam_timing_key not in timing_data:
-                        timing_data[cam_timing_key] = []
-                    timing_data[cam_timing_key].append(cam_time)
-            
-            if "total_loop_time" not in timing_data:
-                timing_data["total_loop_time"] = []
-            timing_data["total_loop_time"].append(total_loop_time)
-            
-            # Print averages every second
+            # Print frequency stats every second
             if current_time - last_print_time >= 1.0:
-                if timing_data and timing_data_start_time is not None:
-                    timing_parts = []
-                    for key in sorted(timing_data.keys()):
-                        if timing_data[key]:
-                            avg_time = sum(timing_data[key]) / len(timing_data[key])
-                            min_time = min(timing_data[key])
-                            max_time = max(timing_data[key])
-                            timing_parts.append(f"{key}: avg={avg_time:.2f}ms min={min_time:.2f}ms max={max_time:.2f}ms")
-                    
-                    # Calculate actual frequency using the actual time span of collected data
-                    loop_count = len(timing_data.get("total_loop_time", []))
+                if loop_times:
+                    loop_count = len(loop_times)
                     actual_time_span = current_time - timing_data_start_time
-                    actual_freq = loop_count / actual_time_span if actual_time_span > 0 else 0
+                    min_freq = min(loop_times)
+                    max_freq = max(loop_times)
+                    overall_freq = loop_count / actual_time_span if actual_time_span > 0 else 0
                     
-                    timing_str = " | ".join(timing_parts)
-                    print(f"Main loop timing - Freq: {actual_freq:.1f}Hz | Loops: {loop_count} | {timing_str}")
+                    print(f"Main loop - Loops: {loop_count} | Overall Freq: {overall_freq:.1f}Hz | Min: {min_freq:.1f}Hz | Max: {max_freq:.1f}Hz")
                 
                 # Reset timing data
-                timing_data.clear()
+                loop_times.clear()
                 timing_data_start_time = None
                 last_print_time = current_time
             

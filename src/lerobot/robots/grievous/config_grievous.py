@@ -116,7 +116,7 @@ class GrievousHostConfig:
     connection_time_s: int = 3600  # Max runtime before auto-shutdown
     watchdog_timeout_ms: int = 500  # Stop robot if no commands received
     max_loop_freq_hz: int = 30  # Control loop frequency
-    teleop_freq_hz: int = 120  # Teleop control thread frequency (higher rate for smoother control)
+    teleop_freq_hz: int = 150  # Teleop control thread frequency (higher rate for smoother control)
 
 
 @RobotConfig.register_subclass("grievous_client")
