@@ -149,28 +149,17 @@ else
 fi
 
 # ============================================================================
-# Step 7: Clone Repository
+# Step 7: Install LeRobot with SmolVLA Dependencies
 # ============================================================================
 echo ""
-echo "Step 7: Cloning Grievous repository..."
-
-if [ -d "/workspace/Grievous" ]; then
-    echo "Repository already exists at /workspace/Grievous, skipping clone."
-    echo "To update, run: cd /workspace/Grievous && git pull"
-else
-    git clone https://github.com/alexkoven/Grievous.git /workspace/Grievous
-    echo "Repository cloned successfully."
-fi
-
-cd /workspace/Grievous
-echo "Current directory: $(pwd)"
-
-# ============================================================================
-# Step 8: Install LeRobot with SmolVLA Dependencies
-# ============================================================================
-echo ""
-echo "Step 8: Installing LeRobot with SmolVLA dependencies..."
+echo "Step 7: Installing LeRobot with SmolVLA dependencies..."
 echo "This may take 15-30 minutes depending on network speed..."
+
+# Ensure we're in the repository directory
+if [ ! -f "pyproject.toml" ]; then
+    echo "ERROR: pyproject.toml not found. Make sure you're running this script from the repository root."
+    exit 1
+fi
 
 pip install --no-cache-dir -e ".[smolvla]"
 
@@ -178,10 +167,10 @@ echo ""
 echo "LeRobot installation completed."
 
 # ============================================================================
-# Step 9: Verify Installation
+# Step 8: Verify Installation
 # ============================================================================
 echo ""
-echo "Step 9: Verifying installation..."
+echo "Step 8: Verifying installation..."
 
 echo "Checking LeRobot..."
 python -c "import lerobot; print(f'LeRobot version: {lerobot.__version__}')" || echo "WARNING: LeRobot import failed"
@@ -203,10 +192,13 @@ echo "Checking GPU access..."
 python -c "import torch; print(f'CUDA available: {torch.cuda.is_available()}'); print(f'GPU count: {torch.cuda.device_count()}'); print(f'GPU name: {torch.cuda.get_device_name(0) if torch.cuda.is_available() else \"N/A\"}')"
 
 # ============================================================================
-# Step 10: Create Activation Script
+# Step 9: Update Activation Script
 # ============================================================================
 echo ""
-echo "Step 10: Creating activation script..."
+echo "Step 9: Updating activation script with detected paths..."
+
+# Get the repository directory (where this script is located)
+REPO_DIR=$(cd "$(dirname "$0")" && pwd)
 
 # Find PyTorch path for activation script
 ACTIVATION_TORCH_PATH=""
@@ -216,10 +208,16 @@ elif /usr/bin/python3 -c "import torch" 2>/dev/null; then
     ACTIVATION_TORCH_PATH=$(/usr/bin/python3 -c "import torch; import os; print(os.path.dirname(os.path.dirname(torch.__file__)))" 2>/dev/null)
 fi
 
-cat > /workspace/activate_env.sh << EOF
+# Update activate_env.sh in the repository
+ACTIVATE_SCRIPT="$REPO_DIR/activate_env.sh"
+if [ -f "$ACTIVATE_SCRIPT" ]; then
+    echo "Updating existing activate_env.sh with detected paths..."
+    
+    # Update the script with detected paths
+    cat > "$ACTIVATE_SCRIPT" << EOF
 #!/bin/bash
 # Activation script for RunPod LeRobot environment
-# Run this script after pod restart: source /workspace/activate_env.sh
+# Run this script after pod restart: source activate_env.sh
 
 # Activate conda
 source /workspace/miniconda3/etc/profile.d/conda.sh
@@ -241,7 +239,7 @@ if [ -n "${ACTIVATION_TORCH_PATH}" ] && [ -d "${ACTIVATION_TORCH_PATH}" ]; then
 fi
 
 # Navigate to project directory
-cd /workspace/Grievous
+cd "${REPO_DIR}"
 
 echo "=========================================="
 echo "Environment activated successfully!"
@@ -253,21 +251,28 @@ echo "  CUDA available: \$(python -c 'import torch; print(torch.cuda.is_availabl
 echo "  Working directory: \$(pwd)"
 echo "=========================================="
 EOF
-
-chmod +x /workspace/activate_env.sh
-echo "Activation script created at /workspace/activate_env.sh"
+    
+    chmod +x "$ACTIVATE_SCRIPT"
+    echo "Activation script updated at $ACTIVATE_SCRIPT"
+else
+    echo "WARNING: activate_env.sh not found in repository at $ACTIVATE_SCRIPT"
+    echo "You may need to create it manually or it will be created on first setup."
+fi
 
 # ============================================================================
-# Step 11: Make Training Script Executable
+# Step 10: Make Training Script Executable
 # ============================================================================
 echo ""
-echo "Step 11: Making training script executable..."
+echo "Step 10: Making training script executable..."
 
-if [ -f "/workspace/Grievous/train_grievous.sh" ]; then
-    chmod +x /workspace/Grievous/train_grievous.sh
+# Get the repository directory (where this script is located)
+REPO_DIR=$(cd "$(dirname "$0")" && pwd)
+
+if [ -f "$REPO_DIR/train_grievous.sh" ]; then
+    chmod +x "$REPO_DIR/train_grievous.sh"
     echo "Training script is now executable."
 else
-    echo "WARNING: train_grievous.sh not found at /workspace/Grievous/train_grievous.sh"
+    echo "WARNING: train_grievous.sh not found at $REPO_DIR/train_grievous.sh"
 fi
 
 # ============================================================================
@@ -289,7 +294,7 @@ echo "3. After pod restart, activate environment:"
 echo "   source /workspace/activate_env.sh"
 echo ""
 echo "4. Run training:"
-echo "   cd /workspace/Grievous"
+echo "   cd $REPO_DIR"
 echo "   ./train_grievous.sh"
 echo ""
 echo "=========================================="
