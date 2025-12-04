@@ -210,17 +210,71 @@ else
 fi
 
 # ============================================================================
-# Step 7: Install LeRobot with SmolVLA Dependencies
+# Step 7: Find Repository Directory
 # ============================================================================
 echo ""
-echo "Step 7: Installing LeRobot with SmolVLA dependencies..."
-echo "This may take 15-30 minutes depending on network speed..."
+echo "Step 7: Finding repository directory..."
 
-# Ensure we're in the repository directory
-if [ ! -f "pyproject.toml" ]; then
-    echo "ERROR: pyproject.toml not found. Make sure you're running this script from the repository root."
+# Try to find the repository directory
+REPO_DIR=""
+
+# First, check if we're already in the repo (script might be run from repo root)
+if [ -f "pyproject.toml" ]; then
+    REPO_DIR=$(pwd)
+    echo "Found repository at current directory: $REPO_DIR"
+# Check common locations
+elif [ -f "/workspace/Grievous/pyproject.toml" ]; then
+    REPO_DIR="/workspace/Grievous"
+    echo "Found repository at: $REPO_DIR"
+elif [ -f "/workspace/lerobot-xlerobot-integration/pyproject.toml" ]; then
+    REPO_DIR="/workspace/lerobot-xlerobot-integration"
+    echo "Found repository at: $REPO_DIR"
+# Search in /workspace for any directory with pyproject.toml
+else
+    echo "Searching for repository in /workspace..."
+    for dir in /workspace/*/; do
+        if [ -f "${dir}pyproject.toml" ]; then
+            REPO_DIR="$dir"
+            echo "Found repository at: $REPO_DIR"
+            break
+        fi
+    done
+fi
+
+# If still not found, check if script is in a repo directory
+if [ -z "$REPO_DIR" ]; then
+    SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
+    if [ -f "$SCRIPT_DIR/pyproject.toml" ]; then
+        REPO_DIR="$SCRIPT_DIR"
+        echo "Found repository at script location: $REPO_DIR"
+    fi
+fi
+
+# Final check
+if [ -z "$REPO_DIR" ] || [ ! -f "$REPO_DIR/pyproject.toml" ]; then
+    echo "ERROR: Could not find repository directory with pyproject.toml"
+    echo "Searched in:"
+    echo "  - Current directory: $(pwd)"
+    echo "  - /workspace/Grievous"
+    echo "  - /workspace/lerobot-xlerobot-integration"
+    echo "  - All subdirectories in /workspace"
+    echo ""
+    echo "Please either:"
+    echo "  1. Clone the repository to /workspace/Grievous, or"
+    echo "  2. Run this script from within the repository directory"
     exit 1
 fi
+
+# Navigate to repository directory
+cd "$REPO_DIR"
+echo "Changed to repository directory: $(pwd)"
+
+# ============================================================================
+# Step 8: Install LeRobot with SmolVLA Dependencies
+# ============================================================================
+echo ""
+echo "Step 8: Installing LeRobot with SmolVLA dependencies..."
+echo "This may take 15-30 minutes depending on network speed..."
 
 pip install --no-cache-dir -e ".[smolvla]"
 
@@ -228,7 +282,7 @@ echo ""
 echo "LeRobot installation completed."
 
 # ============================================================================
-# Step 8: Verify Installation
+# Step 9: Verify Installation
 # ============================================================================
 echo ""
 echo "Step 8: Verifying installation..."
@@ -253,7 +307,7 @@ echo "Checking GPU access..."
 python -c "import torch; print(f'CUDA available: {torch.cuda.is_available()}'); print(f'GPU count: {torch.cuda.device_count()}'); print(f'GPU name: {torch.cuda.get_device_name(0) if torch.cuda.is_available() else \"N/A\"}')"
 
 # ============================================================================
-# Step 9: Update Activation Script
+# Step 10: Update Activation Script
 # ============================================================================
 echo ""
 echo "Step 9: Updating activation script with detected paths..."
@@ -321,7 +375,7 @@ else
 fi
 
 # ============================================================================
-# Step 10: Make Training Script Executable
+# Step 11: Make Training Script Executable
 # ============================================================================
 echo ""
 echo "Step 10: Making training script executable..."
@@ -337,7 +391,7 @@ else
 fi
 
 # ============================================================================
-# Step 11: Final Cleanup
+# Step 12: Final Cleanup
 # ============================================================================
 echo ""
 echo "Step 11: Performing final cleanup to free up space..."
