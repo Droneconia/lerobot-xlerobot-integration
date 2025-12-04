@@ -98,29 +98,54 @@ echo "  PIP_CACHE_DIR=$PIP_CACHE_DIR"
 echo "  HF_HOME=$HF_HOME"
 
 # ============================================================================
-# Step 6: Verify System PyTorch Access
+# Step 6: Find and Link System PyTorch
 # ============================================================================
 echo ""
-echo "Step 6: Verifying system PyTorch access..."
+echo "Step 6: Finding system PyTorch installation..."
 
-# Check if PyTorch is accessible from conda environment
-if python -c "import torch; print(f'PyTorch version: {torch.__version__}'); print(f'CUDA available: {torch.cuda.is_available()}'); print(f'GPU: {torch.cuda.get_device_name(0) if torch.cuda.is_available() else \"N/A\"}')" 2>/dev/null; then
-    echo "✓ System PyTorch is accessible from conda environment"
-else
-    echo "WARNING: PyTorch not found in conda environment."
-    echo "This may happen if the environment was created without --system-site-packages."
-    echo "Checking system Python for PyTorch..."
+# Try to find PyTorch in various Python installations
+TORCH_PATH=""
+PYTHON_WITH_TORCH=""
+
+# Check system python3
+if python3 -c "import torch" 2>/dev/null; then
+    PYTHON_WITH_TORCH="python3"
+    TORCH_PATH=$(python3 -c "import torch; import os; print(os.path.dirname(os.path.dirname(torch.__file__)))" 2>/dev/null)
+    echo "Found PyTorch in system python3: $TORCH_PATH"
+# Check /usr/bin/python3
+elif /usr/bin/python3 -c "import torch" 2>/dev/null; then
+    PYTHON_WITH_TORCH="/usr/bin/python3"
+    TORCH_PATH=$(/usr/bin/python3 -c "import torch; import os; print(os.path.dirname(os.path.dirname(torch.__file__)))" 2>/dev/null)
+    echo "Found PyTorch in /usr/bin/python3: $TORCH_PATH"
+# Check if there's a site-packages directory with torch
+elif [ -d "/usr/local/lib/python3" ]; then
+    for py_dir in /usr/local/lib/python3.*/site-packages; do
+        if [ -d "$py_dir/torch" ]; then
+            TORCH_PATH="$py_dir"
+            echo "Found PyTorch in: $TORCH_PATH"
+            break
+        fi
+    done
+fi
+
+# If we found PyTorch, add it to PYTHONPATH
+if [ -n "$TORCH_PATH" ] && [ -d "$TORCH_PATH" ]; then
+    echo "Adding PyTorch path to PYTHONPATH: $TORCH_PATH"
+    export PYTHONPATH="$TORCH_PATH:$PYTHONPATH"
     
-    # Check system Python
-    if python3 -c "import torch; print(torch.__version__)" 2>/dev/null; then
-        SYSTEM_TORCH_VERSION=$(python3 -c "import torch; print(torch.__version__)" 2>/dev/null)
-        echo "System Python has PyTorch: $SYSTEM_TORCH_VERSION"
-        echo "To use system PyTorch, you may need to recreate the conda environment with --system-site-packages"
-        echo "Or add system site-packages to PYTHONPATH manually"
+    # Verify it works
+    if python -c "import torch; print(f'PyTorch version: {torch.__version__}'); print(f'CUDA available: {torch.cuda.is_available()}'); print(f'GPU: {torch.cuda.get_device_name(0) if torch.cuda.is_available() else \"N/A\"}')" 2>/dev/null; then
+        echo "✓ PyTorch is now accessible from conda environment"
     else
-        echo "ERROR: PyTorch not found in system Python either."
-        echo "You may need to install PyTorch manually."
+        echo "WARNING: PyTorch path added but still not accessible. May need to check dependencies."
     fi
+else
+    echo "ERROR: Could not find PyTorch installation."
+    echo "Checking if PyTorch exists in any Python installation..."
+    python3 -c "import torch; print('PyTorch found in python3')" 2>/dev/null || echo "  - Not in python3"
+    /usr/bin/python3 -c "import torch; print('PyTorch found in /usr/bin/python3')" 2>/dev/null || echo "  - Not in /usr/bin/python3"
+    echo ""
+    echo "You may need to install PyTorch manually or check the container image documentation."
 fi
 
 # ============================================================================
@@ -183,7 +208,15 @@ python -c "import torch; print(f'CUDA available: {torch.cuda.is_available()}'); 
 echo ""
 echo "Step 10: Creating activation script..."
 
-cat > /workspace/activate_env.sh << 'EOF'
+# Find PyTorch path for activation script
+ACTIVATION_TORCH_PATH=""
+if python3 -c "import torch" 2>/dev/null; then
+    ACTIVATION_TORCH_PATH=$(python3 -c "import torch; import os; print(os.path.dirname(os.path.dirname(torch.__file__)))" 2>/dev/null)
+elif /usr/bin/python3 -c "import torch" 2>/dev/null; then
+    ACTIVATION_TORCH_PATH=$(/usr/bin/python3 -c "import torch; import os; print(os.path.dirname(os.path.dirname(torch.__file__)))" 2>/dev/null)
+fi
+
+cat > /workspace/activate_env.sh << EOF
 #!/bin/bash
 # Activation script for RunPod LeRobot environment
 # Run this script after pod restart: source /workspace/activate_env.sh
@@ -202,6 +235,11 @@ export TORCH_HOME=/workspace/.cache/torch
 export TRITON_CACHE_DIR=/workspace/.cache/triton
 export CUDA_VISIBLE_DEVICES=0
 
+# Add system PyTorch to PYTHONPATH if found
+if [ -n "${ACTIVATION_TORCH_PATH}" ] && [ -d "${ACTIVATION_TORCH_PATH}" ]; then
+    export PYTHONPATH="${ACTIVATION_TORCH_PATH}:\$PYTHONPATH"
+fi
+
 # Navigate to project directory
 cd /workspace/Grievous
 
@@ -209,10 +247,10 @@ echo "=========================================="
 echo "Environment activated successfully!"
 echo "=========================================="
 echo "  Conda env: grievous"
-echo "  Python: $(python --version)"
-echo "  PyTorch: $(python -c 'import torch; print(torch.__version__)')"
-echo "  CUDA available: $(python -c 'import torch; print(torch.cuda.is_available())')"
-echo "  Working directory: $(pwd)"
+echo "  Python: \$(python --version)"
+echo "  PyTorch: \$(python -c 'import torch; print(torch.__version__)' 2>/dev/null || echo 'Not found')"
+echo "  CUDA available: \$(python -c 'import torch; print(torch.cuda.is_available())' 2>/dev/null || echo 'N/A')"
+echo "  Working directory: \$(pwd)"
 echo "=========================================="
 EOF
 
