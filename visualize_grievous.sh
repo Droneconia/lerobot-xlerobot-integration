@@ -44,7 +44,7 @@
 
 # Configuration
 DATASET_NAME="${DATASET_NAME:-min-dataset}"
-VERSION="${VERSION:-2}"
+VERSION="${VERSION:-1}"
 EPISODE="${EPISODE:-0}"
 MODE="${MODE:-local}"
 SAVE="${SAVE:-0}"
