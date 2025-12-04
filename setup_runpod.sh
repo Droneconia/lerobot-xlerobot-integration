@@ -9,12 +9,73 @@ echo "RunPod LeRobot Training Setup"
 echo "=========================================="
 
 # ============================================================================
-# Step 1: Navigate to Workspace
+# Cleanup Function
+# ============================================================================
+cleanup_storage() {
+    echo ""
+    echo "Performing storage cleanup..."
+    
+    # Show disk usage before cleanup
+    echo "Disk usage before cleanup:"
+    df -h /workspace 2>/dev/null || df -h /
+    
+    # Clean pip cache
+    echo "Cleaning pip cache..."
+    pip cache purge 2>/dev/null || true
+    rm -rf /root/.cache/pip 2>/dev/null || true
+    rm -rf /workspace/.cache/pip/* 2>/dev/null || true
+    
+    # Clean conda cache
+    echo "Cleaning conda cache..."
+    if command -v conda &> /dev/null; then
+        conda clean -a -y 2>/dev/null || true
+    fi
+    if [ -d "/workspace/miniconda3/pkgs" ]; then
+        rm -rf /workspace/miniconda3/pkgs/cache/* 2>/dev/null || true
+    fi
+    
+    # Clean apt cache
+    echo "Cleaning apt cache..."
+    apt-get clean 2>/dev/null || true
+    rm -rf /var/lib/apt/lists/* 2>/dev/null || true
+    
+    # Clean temporary files
+    echo "Cleaning temporary files..."
+    rm -rf /tmp/* 2>/dev/null || true
+    rm -rf /workspace/tmp/* 2>/dev/null || true
+    
+    # Clean Python bytecode caches
+    echo "Cleaning Python bytecode caches..."
+    find /workspace -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
+    find /workspace -type f -name "*.pyc" -delete 2>/dev/null || true
+    find /workspace -type f -name "*.pyo" -delete 2>/dev/null || true
+    
+    # Clean system logs (if accessible)
+    echo "Cleaning system logs..."
+    journalctl --vacuum-time=1d 2>/dev/null || true
+    
+    # Clean old Miniconda installer if present
+    echo "Cleaning old installers..."
+    rm -f /workspace/Miniconda3-*.sh 2>/dev/null || true
+    
+    # Show disk usage after cleanup
+    echo ""
+    echo "Disk usage after cleanup:"
+    df -h /workspace 2>/dev/null || df -h /
+    
+    echo "Cleanup completed."
+}
+
+# ============================================================================
+# Step 1: Navigate to Workspace and Cleanup
 # ============================================================================
 echo ""
-echo "Step 1: Navigating to /workspace..."
+echo "Step 1: Navigating to /workspace and performing initial cleanup..."
 cd /workspace
 echo "Current directory: $(pwd)"
+
+# Perform initial cleanup to free up space
+cleanup_storage
 
 # ============================================================================
 # Step 2: Install Miniconda
@@ -276,6 +337,13 @@ else
 fi
 
 # ============================================================================
+# Step 11: Final Cleanup
+# ============================================================================
+echo ""
+echo "Step 11: Performing final cleanup to free up space..."
+cleanup_storage
+
+# ============================================================================
 # Summary
 # ============================================================================
 echo ""
@@ -291,7 +359,7 @@ echo "2. Authenticate with WandB:"
 echo "   wandb login"
 echo ""
 echo "3. After pod restart, activate environment:"
-echo "   source /workspace/activate_env.sh"
+echo "   source activate_env.sh"
 echo ""
 echo "4. Run training:"
 echo "   cd $REPO_DIR"
