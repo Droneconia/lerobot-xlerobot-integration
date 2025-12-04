@@ -45,11 +45,13 @@ conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/ma
 conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/r || true
 
 # Create environment if it doesn't exist
+# Use --system-site-packages to access system-installed PyTorch
 if conda env list | grep -q "grievous"; then
     echo "Conda environment 'grievous' already exists, skipping creation."
+    echo "Note: If environment was created without --system-site-packages, you may need to recreate it."
 else
-    conda create -y -n grievous python=3.10
-    echo "Conda environment 'grievous' created successfully."
+    conda create -y -n grievous python=3.10 --system-site-packages
+    echo "Conda environment 'grievous' created successfully with system site-packages access."
 fi
 
 # Activate environment
@@ -96,11 +98,30 @@ echo "  PIP_CACHE_DIR=$PIP_CACHE_DIR"
 echo "  HF_HOME=$HF_HOME"
 
 # ============================================================================
-# Step 6: Verify PyTorch (should already be 2.4)
+# Step 6: Verify System PyTorch Access
 # ============================================================================
 echo ""
-echo "Step 6: Verifying PyTorch installation..."
-python -c "import torch; print(f'PyTorch version: {torch.__version__}'); print(f'CUDA available: {torch.cuda.is_available()}'); print(f'GPU: {torch.cuda.get_device_name(0) if torch.cuda.is_available() else \"N/A\"}')"
+echo "Step 6: Verifying system PyTorch access..."
+
+# Check if PyTorch is accessible from conda environment
+if python -c "import torch; print(f'PyTorch version: {torch.__version__}'); print(f'CUDA available: {torch.cuda.is_available()}'); print(f'GPU: {torch.cuda.get_device_name(0) if torch.cuda.is_available() else \"N/A\"}')" 2>/dev/null; then
+    echo "✓ System PyTorch is accessible from conda environment"
+else
+    echo "WARNING: PyTorch not found in conda environment."
+    echo "This may happen if the environment was created without --system-site-packages."
+    echo "Checking system Python for PyTorch..."
+    
+    # Check system Python
+    if python3 -c "import torch; print(torch.__version__)" 2>/dev/null; then
+        SYSTEM_TORCH_VERSION=$(python3 -c "import torch; print(torch.__version__)" 2>/dev/null)
+        echo "System Python has PyTorch: $SYSTEM_TORCH_VERSION"
+        echo "To use system PyTorch, you may need to recreate the conda environment with --system-site-packages"
+        echo "Or add system site-packages to PYTHONPATH manually"
+    else
+        echo "ERROR: PyTorch not found in system Python either."
+        echo "You may need to install PyTorch manually."
+    fi
+fi
 
 # ============================================================================
 # Step 7: Clone Repository
