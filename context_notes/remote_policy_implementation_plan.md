@@ -263,47 +263,118 @@ All test scripts have been moved to `tests/grievous_inference/` directory for be
 - `tests/grievous_inference/test_action_values_debug.py` - Debug script to verify which motors respond to commands
 - `tests/grievous_inference/test_policy_action_order_fix.py` - Unit test for action ordering fix
 
-#### Phase 6.8: Latency and Performance Test
-- [ ] **Measure end-to-end latency:**
-  - [ ] Add timing logs to measure: observation → inference → action → execution
-  - [ ] Run for 30 seconds, collect latency statistics
-  - [ ] Verify average latency < 100ms (target)
-  - [ ] Verify no dropped frames or stuttering
-  - [ ] Check CPU usage on robot host (should be reasonable)
-  - [ ] Verify camera encoding doesn't cause delays
+#### Phase 6.8: Latency and Performance Test - ⏭️ DEFERRED
+- [ ] **DEFERRED: Will measure during Phase 8.2 (SmolVLA remote test)**
+  - Latency measurement more meaningful with real network latency (RunPod → Robot)
+  - Will measure: observation → inference → action → execution
+  - Target: <200ms end-to-end for internet connection
 
-#### Phase 6.9: Extended Stability Test
-- [ ] **Test extended operation:**
-  - [ ] Run inference host + policy for 2-5 minutes
-  - [ ] Monitor for memory leaks, connection drops, or errors
-  - [ ] Verify robot behavior remains stable
-  - [ ] Test multiple start/stop cycles
-  - [ ] Verify cleanup works correctly each time
+#### Phase 6.9: Extended Stability Test - ⏭️ DEFERRED
+- [ ] **DEFERRED: Will test during Phase 8.4 (SmolVLA stability test)**
+  - Extended stability test more valuable with real policy (SmolVLA)
+  - Will run for 2-5 minutes with actual inference load
 
-#### Phase 6.10: Manual Override Test (Future Feature Preparation)
-- [ ] **Test that leader arms are accessible:**
-  - [ ] During policy execution, verify leader arms can be moved
-  - [ ] **Note:** Current implementation doesn't use leader arms, but verify they're connected
-  - [ ] Document current behavior for future overwrite feature implementation
+#### Phase 6.10: Manual Override Test - ⏭️ SKIPPED
+- [ ] **SKIPPED: Future feature, not needed for current deployment**
+  - Leader arms are connected but unused in current implementation
+  - Can revisit when implementing overwrite feature
 
-### Phase 7: Recording Workflow Verification
-- [ ] Verify the existing dataset recording workflow still works (unchanged):
-  - [ ] Run `grievous_host.py` on robot (original script, no modifications)
-  - [ ] Run `lerobot_record.py --robot.type=grievous_client` (no policy, just teleop recording)
-  - [ ] Verify leader arm actions are captured and saved to dataset
-  - [ ] Verify camera streams are recorded correctly
-  - [ ] Compare a new recording with an old one to ensure no regressions
-  - [ ] Confirm that `grievous_client.py` changes don't interfere with recording
+### Phase 7: Recording Workflow Verification - ⏭️ DEFERRED
+- [ ] **DEFERRED: Will verify after SmolVLA testing**
+  - Recording workflow should be unaffected by inference changes
+  - Can verify when needed for future dataset collection
+  - Priority: Get SmolVLA inference working first
 
-### Phase 8: Remote Network Testing (GPU Server)
-- [ ] Test on remote network (RunPod GPU ↔ robot):
-  - [ ] Ensure robot host is accessible from RunPod (port forwarding, firewall rules)
-  - [ ] Run `grievous_inference_host.py` on robot
-  - [ ] Run `lerobot_record.py --robot.type=grievous_client --policy.path=<trained_policy>` on RunPod
-  - [ ] Measure end-to-end latency (observation → inference → action → execution)
-  - [ ] Verify robot responds smoothly to policy commands
-  - [ ] Test emergency stop: Terminate policy script and verify robot stops safely
-  - [ ] Monitor network stability and packet loss
+### Phase 8: SmolVLA Remote Inference Testing (RunPod → Robot)
+
+**⚠️ SAFETY PROTOCOL:**
+- Phase 8.1-8.2: Actions are LOGGED ONLY, NOT EXECUTED
+- Phase 8.3+: Actions executed with manual supervision
+- Always ready to terminate RunPod script if needed
+
+#### Phase 8.1: RunPod Setup & Environment Preparation
+- [ ] **Setup RunPod instance:**
+  - [ ] Provision GPU instance (check `setup_runpod.sh` for requirements)
+  - [ ] Install lerobot package and dependencies
+  - [ ] Copy SmolVLA checkpoint to RunPod
+  - [ ] Verify model loads correctly (test inference on dummy data)
+- [ ] **Network configuration:**
+  - [ ] Get RunPod instance public IP
+  - [ ] Configure robot laptop to allow incoming connections from RunPod IP
+  - [ ] Test basic network connectivity (ping, telnet to ports 5555/5556)
+  - [ ] Document firewall rules if needed
+- [ ] **Verify dataset/checkpoint compatibility:**
+  - [ ] Confirm SmolVLA expects same observation keys as Grievous provides
+  - [ ] Verify action space matches (17 action dimensions)
+  - [ ] Check image resolution expectations vs. actual camera feeds
+
+#### Phase 8.2: Dry-Run Test (Latency Measurement, NO ACTION EXECUTION) - 🔄 NEXT
+- [ ] **Modify inference host for dry-run mode:**
+  - [ ] Add `--dry-run` flag to `grievous_inference_host.py`
+  - [ ] In dry-run mode: Receive actions, LOG to file, but skip `robot.send_action()`
+  - [ ] Log format: `[timestamp] Action received: {action_dict}`
+  - [ ] Keep all other functionality (observations, watchdog, rate limiting)
+- [ ] **Run first remote test:**
+  - [ ] On robot laptop: `python -m lerobot.robots.grievous.grievous_inference_host --dry-run --log-actions=/tmp/actions_log.txt`
+  - [ ] On RunPod: `lerobot-record --robot.type=grievous_client --robot.host=<ROBOT_IP> --policy.path=<SMOLVLA_CHECKPOINT> --dataset.repo_id=test/eval_smolvla_remote`
+  - [ ] Let run for 30-60 seconds
+  - [ ] Monitor both terminals for errors
+- [ ] **Verify communication:**
+  - [ ] Confirm RunPod receives observations from robot
+  - [ ] Confirm robot receives actions from RunPod
+  - [ ] Check `/tmp/actions_log.txt` - should contain action dictionaries
+  - [ ] Verify no dropped frames or connection timeouts
+- [ ] **Measure latency:**
+  - [ ] Add timestamp logging: observation sent → action received
+  - [ ] Calculate average, min, max, p95 latency
+  - [ ] Target: <200ms end-to-end (internet adds ~50-100ms vs. local network)
+  - [ ] Document results in plan
+- [ ] **Inspect action quality:**
+  - [ ] Review logged actions - do they look reasonable?
+  - [ ] Check for NaN, inf, or extreme values
+  - [ ] Verify action keys match expected format
+  - [ ] Compare action magnitudes to training data ranges
+
+#### Phase 8.3: Enable Action Execution (Supervised)
+- [ ] **Safety checklist before enabling:**
+  - [ ] Dry-run test completed successfully ✓
+  - [ ] Latency measured and acceptable ✓
+  - [ ] Actions inspected and look reasonable ✓
+  - [ ] Robot in safe starting position ✓
+  - [ ] Leader arms accessible for manual override ✓
+  - [ ] Clear workspace, no obstacles ✓
+- [ ] **First live test:**
+  - [ ] Remove `--dry-run` flag from inference host
+  - [ ] Start with SHORT test: 10 seconds
+  - [ ] Be ready to Ctrl+C on RunPod if robot behaves unexpectedly
+  - [ ] Monitor robot movements closely
+  - [ ] Verify movements align with policy's training task
+- [ ] **Extended test:**
+  - [ ] If 10-second test looks good, run for 30 seconds
+  - [ ] Monitor for drift, instability, or unexpected behaviors
+  - [ ] Verify watchdog triggers if RunPod disconnects
+
+#### Phase 8.4: Performance & Stability Test
+- [ ] **Measure performance metrics:**
+  - [ ] Control loop frequency (target: >20Hz for VLA)
+  - [ ] Action smoothness and consistency
+  - [ ] Network stability (packet loss, jitter)
+  - [ ] CPU/GPU utilization on both sides
+- [ ] **Extended stability test:**
+  - [ ] Run for 2-5 minutes continuously
+  - [ ] Monitor for memory leaks or degradation
+  - [ ] Test recovery from temporary network issues
+  - [ ] Verify watchdog behavior during disconnection
+
+#### Phase 8.5: Network Robustness Testing
+- [ ] **Test failure modes:**
+  - [ ] Terminate RunPod script mid-execution → Verify watchdog stops base
+  - [ ] Simulate network lag (if possible) → Measure impact
+  - [ ] Test reconnection behavior
+- [ ] **Document findings:**
+  - [ ] Actual latency vs. target
+  - [ ] Any issues encountered
+  - [ ] Recommendations for production deployment
 
 ### Phase 9: Documentation & Cleanup
 - [ ] Update `context_notes/remote_inference_architecture.md` with final implementation details
