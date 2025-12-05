@@ -273,8 +273,8 @@ def main():
     robot_config = GrievousConfig(id="grievous_robot")
     robot = Grievous(robot_config)
     
-    logger.info("Connecting Grievous robot (using existing calibration)...")
-    robot.connect(calibrate=False)  # Use existing calibration from cache
+    logger.info("Connecting Grievous robot...")
+    robot.connect(calibrate=True)  # Check calibration and prompt if needed
     logger.info("Grievous connected successfully")
     
     logger.info("Starting GrievousHost daemon...")
