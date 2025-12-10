@@ -323,7 +323,15 @@ python -c "import num2words; print('Num2words: OK')" || echo "WARNING: Num2words
 
 echo ""
 echo "Checking training script..."
-lerobot-train --help | head -5 || echo "WARNING: lerobot-train command not found"
+# Check if command exists and can be invoked
+# Note: Broken pipe error (Errno 32) when piping to head is expected and harmless
+if command -v lerobot-train >/dev/null 2>&1; then
+    # Run help command, suppressing broken pipe error (normal when head closes early)
+    lerobot-train --help 2>&1 | head -5 >/dev/null 2>&1 || true
+    echo "✓ lerobot-train command is available"
+else
+    echo "WARNING: lerobot-train command not found"
+fi
 
 echo ""
 echo "Checking GPU access..."
