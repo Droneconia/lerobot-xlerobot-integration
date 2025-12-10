@@ -103,12 +103,63 @@ test_training() {
 full_training() {
     local run_in_background=$1
     
+    # Check if output directory exists
+    local final_output_dir="${OUTPUT_DIR}"
+    local final_job_name="${JOB_NAME}"
+    local resume_flag=""
+    
+    if [ -d "${OUTPUT_DIR}" ]; then
+        echo "=========================================="
+        echo "Output directory already exists: ${OUTPUT_DIR}"
+        echo "=========================================="
+        echo ""
+        echo "What would you like to do?"
+        echo "  1) Resume existing training (continue from checkpoint)"
+        echo "  2) Create new directory with timestamp (start fresh)"
+        echo "  3) Cancel"
+        echo ""
+        read -p "Enter option [1-3]: " dir_choice
+        
+        case "${dir_choice}" in
+            1)
+                echo "Resuming existing training..."
+                resume_flag="--resume"
+                # Check if there's a checkpoint to resume from
+                if [ ! -d "${OUTPUT_DIR}/checkpoints" ] || [ -z "$(ls -A ${OUTPUT_DIR}/checkpoints 2>/dev/null)" ]; then
+                    echo "WARNING: No checkpoints found in ${OUTPUT_DIR}/checkpoints"
+                    echo "Cannot resume. Please choose option 2 to start fresh."
+                    exit 1
+                fi
+                ;;
+            2)
+                # Create new directory with timestamp
+                local timestamp=$(date +%Y%m%d_%H%M%S)
+                final_output_dir="${OUTPUT_DIR}_${timestamp}"
+                final_job_name="${JOB_NAME}_${timestamp}"
+                echo "Creating new directory: ${final_output_dir}"
+                ;;
+            3)
+                echo "Cancelled."
+                exit 0
+                ;;
+            *)
+                echo "Invalid option. Cancelled."
+                exit 1
+                ;;
+        esac
+    fi
+    
     echo "=========================================="
     echo "Running full training (${STEPS} steps)..."
     echo "=========================================="
     echo "Dataset: ${DATASET_REPO_ID}"
-    echo "Output: ${OUTPUT_DIR}"
+    echo "Output: ${final_output_dir}"
     echo "WandB Project: ${WANDB_PROJECT}"
+    if [ -n "${resume_flag}" ]; then
+        echo "Mode: RESUME (continuing from checkpoint)"
+    else
+        echo "Mode: NEW RUN"
+    fi
     echo "=========================================="
     
     # Build the training command
@@ -117,8 +168,9 @@ full_training() {
         --dataset.repo_id=${DATASET_REPO_ID} \
         --batch_size=${BATCH_SIZE} \
         --steps=${STEPS} \
-        --output_dir=${OUTPUT_DIR} \
-        --job_name=${JOB_NAME} \
+        --output_dir=${final_output_dir} \
+        --job_name=${final_job_name} \
+        ${resume_flag} \
         --policy.device=cuda \
         --optimizer.lr=${LEARNING_RATE} \
         --optimizer.weight_decay=0.0 \
@@ -136,7 +188,7 @@ full_training() {
     
     if [ "$run_in_background" = "true" ]; then
         # Create log directory
-        local log_dir="${OUTPUT_DIR}/../training_logs"
+        local log_dir="${final_output_dir}/../training_logs"
         mkdir -p "$log_dir"
         local log_file="${log_dir}/training_$(date +%Y%m%d_%H%M%S).log"
         
@@ -194,10 +246,10 @@ full_training() {
         
         # Clean up old checkpoints to save space (keep only last N)
         # Since push_to_hub only pushes final checkpoint, we keep recent ones for safety
-        if [ -d "${OUTPUT_DIR}/checkpoints" ]; then
+        if [ -d "${final_output_dir}/checkpoints" ]; then
             echo ""
             echo "Cleaning up old checkpoints (keeping last ${KEEP_CHECKPOINTS})..."
-            cd "${OUTPUT_DIR}/checkpoints"
+            cd "${final_output_dir}/checkpoints"
             
             total=$(ls -1d */ 2>/dev/null | wc -l)
             if [ "${total}" -gt "${KEEP_CHECKPOINTS}" ]; then
@@ -212,7 +264,7 @@ full_training() {
         fi
         
         echo ""
-        echo "Model saved to: ${OUTPUT_DIR}"
+        echo "Model saved to: ${final_output_dir}"
         if [ "${PUSH_TO_HUB}" = "true" ]; then
             echo "Model pushed to Hub: ${POLICY_REPO_ID}"
         fi
