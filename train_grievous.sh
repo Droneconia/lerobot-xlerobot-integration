@@ -1,7 +1,7 @@
 #!/bin/bash
 # Training script for Grievous Robot SmolVLA finetuning
 # Organization: Grievous-Robot
-# Dataset: test-record-v14
+# Dataset: min-dataset-v10
 
 set -e  # Exit on error
 
@@ -15,7 +15,7 @@ export CUDA_VISIBLE_DEVICES=0
 # Configuration Variables
 # ============================================================================
 ORG_NAME="Grievous-Robot"
-DATASET_NAME="test-record-v14"
+DATASET_NAME="min-dataset-v10"
 DATASET_REPO_ID="${ORG_NAME}/${DATASET_NAME}"
 
 # Training parameters
