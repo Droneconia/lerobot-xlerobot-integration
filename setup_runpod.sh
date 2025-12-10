@@ -270,10 +270,33 @@ cd "$REPO_DIR"
 echo "Changed to repository directory: $(pwd)"
 
 # ============================================================================
-# Step 8: Install LeRobot with SmolVLA Dependencies
+# Step 8: Install Pillow in Conda Environment
 # ============================================================================
 echo ""
-echo "Step 8: Installing LeRobot with SmolVLA dependencies..."
+echo "Step 8: Installing Pillow in conda environment (Python 3.10 compatible)..."
+echo "This ensures PIL is compiled for Python 3.10, avoiding conflicts with system Python 3.11 PIL..."
+
+pip install --no-cache-dir Pillow
+
+# Verify Pillow installation works correctly
+echo "Verifying Pillow installation..."
+if python -c "from PIL import Image; print(f'Pillow version: {Image.__version__}'); print('Pillow import successful')" 2>/dev/null; then
+    echo "✓ Pillow is correctly installed and importable"
+else
+    echo "WARNING: Pillow installation verification failed. This may cause issues later."
+    echo "Attempting to diagnose..."
+    python -c "import sys; print('Python path:'); [print(f'  {p}') for p in sys.path]" 2>/dev/null || true
+    python -c "import PIL; print(f'PIL location: {PIL.__file__}')" 2>/dev/null || true
+fi
+
+echo ""
+echo "Pillow installation step completed."
+
+# ============================================================================
+# Step 9: Install LeRobot with SmolVLA Dependencies
+# ============================================================================
+echo ""
+echo "Step 9: Installing LeRobot with SmolVLA dependencies..."
 echo "This may take 15-30 minutes depending on network speed..."
 
 pip install --no-cache-dir -e ".[smolvla]"
@@ -282,10 +305,10 @@ echo ""
 echo "LeRobot installation completed."
 
 # ============================================================================
-# Step 9: Verify Installation
+# Step 10: Verify Installation
 # ============================================================================
 echo ""
-echo "Step 8: Verifying installation..."
+echo "Step 10: Verifying installation..."
 
 echo "Checking LeRobot..."
 python -c "import lerobot; print(f'LeRobot version: {lerobot.__version__}')" || echo "WARNING: LeRobot import failed"
@@ -307,10 +330,10 @@ echo "Checking GPU access..."
 python -c "import torch; print(f'CUDA available: {torch.cuda.is_available()}'); print(f'GPU count: {torch.cuda.device_count()}'); print(f'GPU name: {torch.cuda.get_device_name(0) if torch.cuda.is_available() else \"N/A\"}')"
 
 # ============================================================================
-# Step 10: Update Activation Script
+# Step 11: Update Activation Script
 # ============================================================================
 echo ""
-echo "Step 9: Updating activation script with detected paths..."
+echo "Step 11: Updating activation script with detected paths..."
 
 # Get the repository directory (where this script is located)
 REPO_DIR=$(cd "$(dirname "$0")" && pwd)
@@ -375,10 +398,10 @@ else
 fi
 
 # ============================================================================
-# Step 11: Make Training Script Executable
+# Step 12: Make Training Script Executable
 # ============================================================================
 echo ""
-echo "Step 10: Making training script executable..."
+echo "Step 12: Making training script executable..."
 
 # Get the repository directory (where this script is located)
 REPO_DIR=$(cd "$(dirname "$0")" && pwd)
@@ -391,10 +414,10 @@ else
 fi
 
 # ============================================================================
-# Step 12: Final Cleanup
+# Step 13: Final Cleanup
 # ============================================================================
 echo ""
-echo "Step 11: Performing final cleanup to free up space..."
+echo "Step 13: Performing final cleanup to free up space..."
 cleanup_storage
 
 # ============================================================================
