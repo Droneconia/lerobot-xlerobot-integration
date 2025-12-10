@@ -78,7 +78,31 @@ echo "Current directory: $(pwd)"
 cleanup_storage
 
 # ============================================================================
-# Step 2: Install Miniconda
+# Step 2: Install screen (for background training sessions)
+# ============================================================================
+echo ""
+echo "Step 2: Installing screen for background session management..."
+
+# Check if screen is already installed
+if command -v screen &> /dev/null; then
+    echo "screen is already installed: $(screen --version)"
+else
+    echo "Installing screen..."
+    # Use apt-get with minimal output and no interactive prompts
+    # Screen is a small package (~1-2MB), won't cause memory issues
+    DEBIAN_FRONTEND=noninteractive apt-get update -qq > /dev/null 2>&1
+    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq screen > /dev/null 2>&1
+    
+    # Verify installation
+    if command -v screen &> /dev/null; then
+        echo "✓ screen installed successfully: $(screen --version)"
+    else
+        echo "WARNING: screen installation may have failed. You can install manually later with: apt-get install -y screen"
+    fi
+fi
+
+# ============================================================================
+# Step 3: Install Miniconda
 # ============================================================================
 echo ""
 echo "Step 2: Installing Miniconda to /workspace..."
@@ -92,10 +116,10 @@ else
 fi
 
 # ============================================================================
-# Step 3: Create Conda Environment
+# Step 4: Create Conda Environment
 # ============================================================================
 echo ""
-echo "Step 3: Creating conda environment 'grievous' with Python 3.10..."
+echo "Step 4: Creating conda environment 'grievous' with Python 3.10..."
 
 # Source conda to use it in this script
 source /workspace/miniconda3/etc/profile.d/conda.sh
@@ -120,10 +144,10 @@ conda activate grievous
 echo "Conda environment activated."
 
 # ============================================================================
-# Step 4: Install ffmpeg
+# Step 5: Install ffmpeg
 # ============================================================================
 echo ""
-echo "Step 4: Installing ffmpeg in conda environment..."
+echo "Step 5: Installing ffmpeg in conda environment..."
 conda install -y ffmpeg -c conda-forge
 echo "ffmpeg installed successfully."
 
@@ -132,10 +156,10 @@ echo ""
 echo "Python version: $(python --version)"
 
 # ============================================================================
-# Step 5: Configure Environment Variables
+# Step 6: Configure Environment Variables
 # ============================================================================
 echo ""
-echo "Step 5: Configuring environment variables for space management..."
+echo "Step 6: Configuring environment variables for space management..."
 
 # Create temporary directory on network volume
 mkdir -p /workspace/tmp
@@ -159,10 +183,10 @@ echo "  PIP_CACHE_DIR=$PIP_CACHE_DIR"
 echo "  HF_HOME=$HF_HOME"
 
 # ============================================================================
-# Step 6: Find and Link System PyTorch
+# Step 7: Find and Link System PyTorch
 # ============================================================================
 echo ""
-echo "Step 6: Finding system PyTorch installation..."
+echo "Step 7: Finding system PyTorch installation..."
 
 # Try to find PyTorch in various Python installations
 TORCH_PATH=""
@@ -210,10 +234,10 @@ else
 fi
 
 # ============================================================================
-# Step 7: Find Repository Directory
+# Step 8: Find Repository Directory
 # ============================================================================
 echo ""
-echo "Step 7: Finding repository directory..."
+echo "Step 8: Finding repository directory..."
 
 # Try to find the repository directory
 REPO_DIR=""
@@ -270,10 +294,10 @@ cd "$REPO_DIR"
 echo "Changed to repository directory: $(pwd)"
 
 # ============================================================================
-# Step 8: Install Pillow in Conda Environment
+# Step 9: Install Pillow in Conda Environment
 # ============================================================================
 echo ""
-echo "Step 8: Installing Pillow in conda environment (Python 3.10 compatible)..."
+echo "Step 9: Installing Pillow in conda environment (Python 3.10 compatible)..."
 echo "This ensures PIL is compiled for Python 3.10, avoiding conflicts with system Python 3.11 PIL..."
 
 pip install --no-cache-dir Pillow
@@ -293,10 +317,10 @@ echo ""
 echo "Pillow installation step completed."
 
 # ============================================================================
-# Step 9: Install LeRobot with SmolVLA Dependencies
+# Step 10: Install LeRobot with SmolVLA Dependencies
 # ============================================================================
 echo ""
-echo "Step 9: Installing LeRobot with SmolVLA dependencies..."
+echo "Step 10: Installing LeRobot with SmolVLA dependencies..."
 echo "This may take 15-30 minutes depending on network speed..."
 
 pip install --no-cache-dir -e ".[smolvla]"
@@ -305,10 +329,10 @@ echo ""
 echo "LeRobot installation completed."
 
 # ============================================================================
-# Step 10: Verify Installation
+# Step 11: Verify Installation
 # ============================================================================
 echo ""
-echo "Step 10: Verifying installation..."
+echo "Step 11: Verifying installation..."
 
 echo "Checking LeRobot..."
 python -c "import lerobot; print(f'LeRobot version: {lerobot.__version__}')" || echo "WARNING: LeRobot import failed"
@@ -338,10 +362,10 @@ echo "Checking GPU access..."
 python -c "import torch; print(f'CUDA available: {torch.cuda.is_available()}'); print(f'GPU count: {torch.cuda.device_count()}'); print(f'GPU name: {torch.cuda.get_device_name(0) if torch.cuda.is_available() else \"N/A\"}')"
 
 # ============================================================================
-# Step 11: Update Activation Script
+# Step 12: Update Activation Script
 # ============================================================================
 echo ""
-echo "Step 11: Updating activation script with detected paths..."
+echo "Step 12: Updating activation script with detected paths..."
 
 # Get the repository directory (where this script is located)
 REPO_DIR=$(cd "$(dirname "$0")" && pwd)
@@ -406,10 +430,10 @@ else
 fi
 
 # ============================================================================
-# Step 12: Make Training Script Executable
+# Step 13: Make Training Script Executable
 # ============================================================================
 echo ""
-echo "Step 12: Making training script executable..."
+echo "Step 13: Making training script executable..."
 
 # Get the repository directory (where this script is located)
 REPO_DIR=$(cd "$(dirname "$0")" && pwd)
@@ -422,10 +446,10 @@ else
 fi
 
 # ============================================================================
-# Step 13: Final Cleanup
+# Step 14: Final Cleanup
 # ============================================================================
 echo ""
-echo "Step 13: Performing final cleanup to free up space..."
+echo "Step 14: Performing final cleanup to free up space..."
 cleanup_storage
 
 # ============================================================================

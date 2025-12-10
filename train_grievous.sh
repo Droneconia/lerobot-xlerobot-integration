@@ -101,6 +101,8 @@ test_training() {
 
 # Full training run (20k steps, ~4 hours)
 full_training() {
+    local run_in_background=$1
+    
     echo "=========================================="
     echo "Running full training (${STEPS} steps)..."
     echo "=========================================="
@@ -109,7 +111,8 @@ full_training() {
     echo "WandB Project: ${WANDB_PROJECT}"
     echo "=========================================="
     
-    python src/lerobot/scripts/lerobot_train.py \
+    # Build the training command
+    local train_cmd="python src/lerobot/scripts/lerobot_train.py \
         --policy.path=${POLICY_PATH} \
         --dataset.repo_id=${DATASET_REPO_ID} \
         --batch_size=${BATCH_SIZE} \
@@ -128,34 +131,91 @@ full_training() {
         --wandb.project=${WANDB_PROJECT} \
         --policy.repo_id=${POLICY_REPO_ID} \
         --policy.push_to_hub=${PUSH_TO_HUB} \
-        --rename_map='{"observation.images.left_wrist":"observation.images.camera1","observation.images.right_wrist":"observation.images.camera2","observation.images.head":"observation.images.camera3"}' \
-        --seed=1000
+        --rename_map='{\"observation.images.left_wrist\":\"observation.images.camera1\",\"observation.images.right_wrist\":\"observation.images.camera2\",\"observation.images.head\":\"observation.images.camera3\"}' \
+        --seed=1000"
     
-    echo "✓ Full training complete!"
-    
-    # Clean up old checkpoints to save space (keep only last N)
-    # Since push_to_hub only pushes final checkpoint, we keep recent ones for safety
-    if [ -d "${OUTPUT_DIR}/checkpoints" ]; then
-        echo ""
-        echo "Cleaning up old checkpoints (keeping last ${KEEP_CHECKPOINTS})..."
-        cd "${OUTPUT_DIR}/checkpoints"
+    if [ "$run_in_background" = "true" ]; then
+        # Create log directory
+        local log_dir="${OUTPUT_DIR}/../training_logs"
+        mkdir -p "$log_dir"
+        local log_file="${log_dir}/training_$(date +%Y%m%d_%H%M%S).log"
         
-        total=$(ls -1d */ 2>/dev/null | wc -l)
-        if [ "${total}" -gt "${KEEP_CHECKPOINTS}" ]; then
-            to_delete=$((total - KEEP_CHECKPOINTS))
-            echo "Found ${total} checkpoints, deleting ${to_delete} oldest..."
-            ls -1d */ | sort -V | head -n -${KEEP_CHECKPOINTS} | xargs rm -rf
-            echo "✓ Cleanup complete: kept last ${KEEP_CHECKPOINTS} checkpoints"
+        echo ""
+        echo "Running training in background..."
+        echo "Log file: ${log_file}"
+        echo ""
+        
+        # Try to use screen if available (best option)
+        if command -v screen &> /dev/null; then
+            echo "Using 'screen' for background execution."
+            echo "To attach later: screen -r training_smolvla"
+            echo "To detach: Press Ctrl+A then D"
+            echo ""
+            screen -dmS training_smolvla bash -c "$train_cmd 2>&1 | tee ${log_file}"
+            echo "Training started in screen session 'training_smolvla'"
+            echo "View logs: tail -f ${log_file}"
+        # Fallback to nohup if screen not available
+        elif command -v nohup &> /dev/null; then
+            echo "Using 'nohup' for background execution."
+            echo "View logs: tail -f ${log_file}"
+            echo ""
+            nohup bash -c "$train_cmd" > "${log_file}" 2>&1 &
+            local pid=$!
+            echo "Training started in background (PID: $pid)"
+            echo "Check status: ps aux | grep lerobot_train"
         else
-            echo "Only ${total} checkpoint(s), no cleanup needed"
+            echo "WARNING: Neither 'screen' nor 'nohup' found. Running in background with &"
+            echo "WARNING: Process may stop if you disconnect. Consider installing 'screen' or 'tmux'"
+            bash -c "$train_cmd" > "${log_file}" 2>&1 &
+            local pid=$!
+            echo "Training started in background (PID: $pid)"
         fi
-        cd - > /dev/null
-    fi
-    
-    echo ""
-    echo "Model saved to: ${OUTPUT_DIR}"
-    if [ "${PUSH_TO_HUB}" = "true" ]; then
-        echo "Model pushed to Hub: ${POLICY_REPO_ID}"
+        
+        echo ""
+        echo "=========================================="
+        echo "Background Training Started"
+        echo "=========================================="
+        echo "Monitor progress:"
+        echo "  - Log file: tail -f ${log_file}"
+        echo "  - WandB: https://wandb.ai (project: ${WANDB_PROJECT})"
+        echo "  - GPU: watch -n 1 nvidia-smi"
+        echo "  - Process: ps aux | grep lerobot_train"
+        if command -v screen &> /dev/null; then
+            echo ""
+            echo "To attach to training session:"
+            echo "  screen -r training_smolvla"
+            echo "  (Press Ctrl+A then D to detach)"
+        fi
+        echo "=========================================="
+    else
+        # Run in foreground
+        eval "$train_cmd"
+        echo "✓ Full training complete!"
+        
+        # Clean up old checkpoints to save space (keep only last N)
+        # Since push_to_hub only pushes final checkpoint, we keep recent ones for safety
+        if [ -d "${OUTPUT_DIR}/checkpoints" ]; then
+            echo ""
+            echo "Cleaning up old checkpoints (keeping last ${KEEP_CHECKPOINTS})..."
+            cd "${OUTPUT_DIR}/checkpoints"
+            
+            total=$(ls -1d */ 2>/dev/null | wc -l)
+            if [ "${total}" -gt "${KEEP_CHECKPOINTS}" ]; then
+                to_delete=$((total - KEEP_CHECKPOINTS))
+                echo "Found ${total} checkpoints, deleting ${to_delete} oldest..."
+                ls -1d */ | sort -V | head -n -${KEEP_CHECKPOINTS} | xargs rm -rf
+                echo "✓ Cleanup complete: kept last ${KEEP_CHECKPOINTS} checkpoints"
+            else
+                echo "Only ${total} checkpoint(s), no cleanup needed"
+            fi
+            cd - > /dev/null
+        fi
+        
+        echo ""
+        echo "Model saved to: ${OUTPUT_DIR}"
+        if [ "${PUSH_TO_HUB}" = "true" ]; then
+            echo "Model pushed to Hub: ${POLICY_REPO_ID}"
+        fi
     fi
 }
 
@@ -187,6 +247,20 @@ echo "  3) Full training (${STEPS} steps, ~4 hours)"
 echo ""
 read -p "Enter option [1-3]: " choice
 
+# Ask about background execution for full training
+RUN_IN_BACKGROUND="false"
+if [ "${choice}" = "3" ]; then
+    echo ""
+    echo "Run training in background? (allows you to disconnect SSH)"
+    echo "  y) Yes - run in background (recommended for long training)"
+    echo "  n) No - run in foreground (see output in real-time)"
+    echo ""
+    read -p "Run in background? [y/N]: " bg_choice
+    if [[ "$bg_choice" =~ ^[Yy]$ ]]; then
+        RUN_IN_BACKGROUND="true"
+    fi
+fi
+
 case "${choice}" in
     1)
         verify_setup
@@ -195,7 +269,7 @@ case "${choice}" in
         test_training
         ;;
     3)
-        full_training
+        full_training "$RUN_IN_BACKGROUND"
         ;;
     *)
         echo ""
