@@ -28,17 +28,17 @@ from ..config import RobotConfig
 def grievous_cameras_config() -> dict[str, CameraConfig]:
     """Default camera configuration for Grievous (same as XLerobot).
     
-    Camera paths (from laptop_host_setup.md):
-    - Left wrist: /dev/cam_left
-    - Right wrist: /dev/cam_right
+    Camera paths:
+    - Left wrist: /dev/video6 (or /dev/cam_left if udev rules set up)
+    - Right wrist: /dev/video8 (or /dev/cam_right if udev rules set up)
     - Head: RealSense D435 with serial 032622074046
     """
     return {
         "left_wrist": OpenCVCameraConfig(
-            index_or_path="/dev/cam_left", fps=30, width=640, height=480, rotation=Cv2Rotation.NO_ROTATION
+            index_or_path="/dev/video6", fps=30, width=640, height=480, rotation=Cv2Rotation.NO_ROTATION
         ),
         "right_wrist": OpenCVCameraConfig(
-            index_or_path="/dev/cam_right", fps=30, width=640, height=480, rotation=Cv2Rotation.NO_ROTATION
+            index_or_path="/dev/video8", fps=30, width=640, height=480, rotation=Cv2Rotation.NO_ROTATION
         ),
         "head": RealSenseCameraConfig(
             serial_number_or_name="032622074046",

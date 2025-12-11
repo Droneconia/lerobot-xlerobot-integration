@@ -60,10 +60,10 @@ cd ~/Code/lerobot-xlerobot-integration
 conda activate grievous
 
 # For dry-run (safe testing - logs actions, doesn't execute):
-python src/lerobot/robots/grievous/grievous_inference_host.py --dry-run --duration 300
+python -m lerobot.robots.grievous.grievous_inference_host --dry-run --duration 300
 
 # For real execution:
-python src/lerobot/robots/grievous/grievous_inference_host.py --duration 300
+python -m lerobot.robots.grievous.grievous_inference_host --duration 300
 ```
 
 ### On Runpod (connects to RPi5):
@@ -72,14 +72,14 @@ cd /workspace/lerobot-xlerobot-integration
 
 # Set your parameters:
 export RPI5_IP="192.168.50.148"  # RPi5's IP
-export POLICY_PATH="Grievous-Robot/smolvla-checkpoint"  # Your policy checkpoint
+export POLICY_PATH="/workspace/outputs/smolvla_finetuned_20251210_022454/checkpoints/last/pretrained_model"
 export EPISODES=1
 
 lerobot-record \
     --robot.type=grievous_client \
     --robot.remote_ip=${RPI5_IP} \
     --policy.path="${POLICY_PATH}" \
-    --dataset.repo_id="Grievous-Robot/eval-remote" \
+    --dataset.repo_id="Grievous-Robot/eval_remote" \
     --dataset.num_episodes=${EPISODES} \
     --dataset.single_task="Remote inference test" \
     --dataset.push_to_hub=false \
@@ -101,7 +101,7 @@ curl ifconfig.me
 # Example output: 209.170.80.156
 
 # Set your parameters:
-export POLICY_PATH="Grievous-Robot/smolvla-checkpoint"  # Your policy checkpoint
+export POLICY_PATH="/workspace/outputs/smolvla_finetuned_20251210_022454/checkpoints/last/pretrained_model"
 export EPISODES=1
 
 # Start Runpod in server mode (waits for RPi5 to connect):
@@ -109,7 +109,7 @@ lerobot-record \
     --robot.type=grievous_client \
     --robot.reverse_connection=true \
     --policy.path="${POLICY_PATH}" \
-    --dataset.repo_id="Grievous-Robot/eval-remote" \
+    --dataset.repo_id="Grievous-Robot/eval_remote" \
     --dataset.num_episodes=${EPISODES} \
     --dataset.single_task="Remote inference test" \
     --dataset.push_to_hub=false \
@@ -125,13 +125,13 @@ conda activate grievous
 export RUNPOD_IP="209.170.80.156"  # Replace with actual Runpod IP
 
 # For dry-run (safe testing - logs actions, doesn't execute):
-python src/lerobot/robots/grievous/grievous_inference_host.py \
+python -m lerobot.robots.grievous.grievous_inference_host \
     --remote-ip ${RUNPOD_IP} \
     --dry-run \
     --duration 300
 
 # For real execution (after dry-run looks good):
-python src/lerobot/robots/grievous/grievous_inference_host.py \
+python -m lerobot.robots.grievous.grievous_inference_host \
     --remote-ip ${RUNPOD_IP} \
     --duration 300
 ```
@@ -154,7 +154,7 @@ VERSION=1
 EPISODES=10
 
 # Inference:
-POLICY_PATH="Grievous-Robot/smolvla-checkpoint"
+POLICY_PATH="/workspace/outputs/smolvla_finetuned_20251210_022454/checkpoints/last/pretrained_model"
 RUNPOD_IP="209.170.80.156"  # From: curl ifconfig.me (on Runpod)
 RPI5_IP="192.168.50.148"
 ```
