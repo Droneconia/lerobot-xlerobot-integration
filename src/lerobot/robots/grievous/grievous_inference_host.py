@@ -86,18 +86,18 @@ class GrievousInferenceHost:
         else:
             # Normal mode: BIND locally (server mode)
             logger.info(f"Binding GrievousInferenceHost on ports {config.port_zmq_cmd}/{config.port_zmq_observations}...")
-            
-            # Command socket: RECEIVE actions from client (PULL)
-            self.zmq_cmd_socket = self.zmq_context.socket(zmq.PULL)
-            # Note: CONFLATE doesn't work with PULL sockets - removed for proper message delivery
-            self.zmq_cmd_socket.bind(f"tcp://*:{config.port_zmq_cmd}")
-            logger.info(f"Command socket (PULL) bound to tcp://*:{config.port_zmq_cmd}")
-            
-            # Observation socket: send observations to client
-            self.zmq_observation_socket = self.zmq_context.socket(zmq.PUSH)
-            self.zmq_observation_socket.setsockopt(zmq.CONFLATE, 1)  # Keep only latest message
-            self.zmq_observation_socket.bind(f"tcp://*:{config.port_zmq_observations}")
-            logger.info(f"Observation socket (PUSH) bound to tcp://*:{config.port_zmq_observations}")
+        
+        # Command socket: RECEIVE actions from client (PULL)
+        self.zmq_cmd_socket = self.zmq_context.socket(zmq.PULL)
+        # Note: CONFLATE doesn't work with PULL sockets - removed for proper message delivery
+        self.zmq_cmd_socket.bind(f"tcp://*:{config.port_zmq_cmd}")
+        logger.info(f"Command socket (PULL) bound to tcp://*:{config.port_zmq_cmd}")
+        
+        # Observation socket: send observations to client
+        self.zmq_observation_socket = self.zmq_context.socket(zmq.PUSH)
+        self.zmq_observation_socket.setsockopt(zmq.CONFLATE, 1)  # Keep only latest message
+        self.zmq_observation_socket.bind(f"tcp://*:{config.port_zmq_observations}")
+        logger.info(f"Observation socket (PUSH) bound to tcp://*:{config.port_zmq_observations}")
         
         # Configuration
         self.connection_time_s = config.connection_time_s
@@ -137,6 +137,10 @@ def main():
                         help="Log actions but don't execute on robot (safe testing)")
     parser.add_argument("--duration", type=int, default=300,
                         help="Connection duration in seconds (default: 300)")
+    parser.add_argument("--port-cmd", type=int, default=5555,
+                        help="Command port (default: 5555, use external port if port-mapped)")
+    parser.add_argument("--port-obs", type=int, default=5556,
+                        help="Observation port (default: 5556, use external port if port-mapped)")
     args = parser.parse_args()
     
     logging.basicConfig(
@@ -161,7 +165,9 @@ def main():
     host_config = GrievousHostConfig(
         connection_time_s=args.duration,
         remote_ip=args.remote_ip,
-        dry_run=args.dry_run
+        dry_run=args.dry_run,
+        port_zmq_cmd=args.port_cmd,
+        port_zmq_observations=args.port_obs
     )
     host = GrievousInferenceHost(host_config)
     
@@ -193,8 +199,8 @@ def main():
                     logger.info(f"[DRY RUN] Action received (not executed): {len(data)} keys")
                     logger.info(f"[DRY RUN] Action values: {data}")
                 else:
-                    # Execute action on follower (XLerobot component)
-                    robot.send_action(data)
+                # Execute action on follower (XLerobot component)
+                robot.send_action(data)
                     logger.info(f"Action received and executed: {len(data)} keys")
                 
                 # Reset watchdog timer
