@@ -182,6 +182,7 @@ def main():
         
         while duration < host.connection_time_s:
             loop_start_time = time.perf_counter()
+            logger.info(f"Loop iteration starting, duration={duration:.1f}s")
             
             # 1. Try to receive action commands from remote policy
             try:
@@ -226,9 +227,12 @@ def main():
             
             # 3. Get observation from Grievous (follower + cameras)
             # Note: Leader arms are not read in inference mode
+            logger.info("Getting observation from robot...")
             last_observation = robot.get_observation()
+            logger.info(f"Got observation with {len(last_observation)} keys")
             
             # 4. Encode camera images to base64 for network transmission
+            logger.info("Encoding camera images...")
             for cam_key in robot.xlerobot.cameras.keys():
                 if cam_key in last_observation:
                     # Check if image is valid (not None and not empty)
