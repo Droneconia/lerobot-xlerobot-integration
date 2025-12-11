@@ -28,14 +28,14 @@ from ..config import RobotConfig
 def grievous_cameras_config() -> dict[str, CameraConfig]:
     """Default camera configuration for Grievous (same as XLerobot).
     
-    Camera paths:
-    - Left wrist: /dev/video6 (or /dev/cam_left if udev rules set up)
-    - Right wrist: /dev/video8 (or /dev/cam_right if udev rules set up)
-    - Head: RealSense D435 with serial 032622074046
+    Camera paths (RPi5):
+    - Left wrist: /dev/video0 (Innomaker at usb 1.2)
+    - Right wrist: /dev/video8 (Innomaker at usb 1.3)
+    - Head: RealSense D435 with serial 032622074046 (uses video2-7)
     """
     return {
         "left_wrist": OpenCVCameraConfig(
-            index_or_path="/dev/video6", fps=30, width=640, height=480, rotation=Cv2Rotation.NO_ROTATION
+            index_or_path="/dev/video0", fps=30, width=640, height=480, rotation=Cv2Rotation.NO_ROTATION
         ),
         "right_wrist": OpenCVCameraConfig(
             index_or_path="/dev/video8", fps=30, width=640, height=480, rotation=Cv2Rotation.NO_ROTATION
@@ -47,7 +47,7 @@ def grievous_cameras_config() -> dict[str, CameraConfig]:
             height=480,
             color_mode=ColorMode.BGR,
             rotation=Cv2Rotation.NO_ROTATION,
-            use_depth=True
+            use_depth=False  # Disabled - conflicts with other video devices
         ),
     }
 

@@ -10,7 +10,7 @@ Quick reference for running Grievous in different modes.
 ```bash
 cd ~/Code/lerobot-xlerobot-integration
 conda activate grievous
-python src/lerobot/robots/grievous/grievous_host.py
+python -m lerobot.robots.grievous.grievous_host
 ```
 
 ### On Laptop:
