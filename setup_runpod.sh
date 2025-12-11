@@ -130,13 +130,12 @@ conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/ma
 conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/r || true
 
 # Create environment if it doesn't exist
-# Use --system-site-packages to access system-installed PyTorch
+# System PyTorch will be accessed via PYTHONPATH (set in Step 7)
 if conda env list | grep -q "grievous"; then
     echo "Conda environment 'grievous' already exists, skipping creation."
-    echo "Note: If environment was created without --system-site-packages, you may need to recreate it."
 else
-    conda create -y -n grievous python=3.10 --system-site-packages
-    echo "Conda environment 'grievous' created successfully with system site-packages access."
+    conda create -y -n grievous python=3.10
+    echo "Conda environment 'grievous' created successfully."
 fi
 
 # Activate environment
