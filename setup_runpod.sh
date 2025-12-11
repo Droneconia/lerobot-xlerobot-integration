@@ -316,11 +316,58 @@ echo ""
 echo "Pillow installation step completed."
 
 # ============================================================================
-# Step 10: Install LeRobot with SmolVLA Dependencies
+# Step 10: Verify System PyTorch and Install LeRobot
 # ============================================================================
 echo ""
-echo "Step 10: Installing LeRobot with SmolVLA dependencies..."
-echo "This may take 15-30 minutes depending on network speed..."
+echo "Step 10: Verifying system PyTorch accessibility..."
+
+# Check if PyTorch is accessible (should be via PYTHONPATH from Step 7)
+if ! python -c "import torch; print(f'PyTorch {torch.__version__} found'); assert torch.__version__.startswith('2.4'), 'Wrong PyTorch version'" 2>/dev/null; then
+    echo ""
+    echo "=========================================="
+    echo "ERROR: System PyTorch is not accessible!"
+    echo "=========================================="
+    echo ""
+    echo "The pod should have PyTorch 2.4.0 pre-installed, but it's not accessible"
+    echo "from the conda environment. This indicates a configuration problem."
+    echo ""
+    echo "Debugging information:"
+    echo "  PYTHONPATH: $PYTHONPATH"
+    echo "  Python location: $(which python)"
+    echo "  Python version: $(python --version)"
+    echo ""
+    echo "Trying to import PyTorch:"
+    python -c "import torch" 2>&1 || true
+    echo ""
+    echo "Please check:"
+    echo "  1. Is this running on a RunPod instance with PyTorch pre-installed?"
+    echo "  2. Did Step 7 correctly detect the system PyTorch path?"
+    echo "  3. Are there Python version mismatches (system vs conda)?"
+    echo ""
+    exit 1
+fi
+
+echo "✓ System PyTorch 2.4.x is accessible"
+python -c "import torch; print(f'  PyTorch version: {torch.__version__}'); print(f'  CUDA available: {torch.cuda.is_available()}'); print(f'  Device: {torch.cuda.get_device_name(0) if torch.cuda.is_available() else \"N/A\"}')"
+
+# Make pip recognize system PyTorch by adding .pth file to conda site-packages
+echo ""
+echo "Configuring conda environment to recognize system PyTorch for pip..."
+CONDA_SITE_PACKAGES=$(python -c "import site; print(site.getsitepackages()[0])")
+echo "$TORCH_PATH" > "$CONDA_SITE_PACKAGES/system-pytorch.pth"
+echo "✓ Created .pth file in conda site-packages: $CONDA_SITE_PACKAGES/system-pytorch.pth"
+
+# Verify pip can see torch now
+if pip list | grep -q "torch"; then
+    echo "✓ Pip recognizes system PyTorch - will not reinstall"
+else
+    echo "WARNING: Pip may still try to install PyTorch (this is expected, but wasteful)"
+fi
+
+# Now install LeRobot with SmolVLA dependencies
+echo ""
+echo "Installing LeRobot with SmolVLA dependencies..."
+echo "This may take 10-15 minutes depending on network speed..."
 
 pip install --no-cache-dir -e ".[smolvla]"
 
