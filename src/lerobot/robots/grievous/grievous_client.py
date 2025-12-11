@@ -233,30 +233,30 @@ class GrievousClient(Robot):
             # Normal mode: CONNECT to remote host (client mode)
             logger.info(f"Connecting to Grievous host at {self.remote_ip}...")
 
-        # Command socket (PUSH): send actions to host
-        self.zmq_cmd_socket = self.zmq_context.socket(zmq.PUSH)
-        zmq_cmd_locator = f"tcp://{self.remote_ip}:{self.port_zmq_cmd}"
-        self.zmq_cmd_socket.connect(zmq_cmd_locator)
-        self.zmq_cmd_socket.setsockopt(zmq.CONFLATE, 1)  # Keep only latest message
-        logger.info(f"Command socket connected to {zmq_cmd_locator}")
+            # Command socket (PUSH): send actions to host
+            self.zmq_cmd_socket = self.zmq_context.socket(zmq.PUSH)
+            zmq_cmd_locator = f"tcp://{self.remote_ip}:{self.port_zmq_cmd}"
+            self.zmq_cmd_socket.connect(zmq_cmd_locator)
+            self.zmq_cmd_socket.setsockopt(zmq.CONFLATE, 1)  # Keep only latest message
+            logger.info(f"Command socket connected to {zmq_cmd_locator}")
 
-        # Observation socket (PULL): receive observations from host
-        self.zmq_observation_socket = self.zmq_context.socket(zmq.PULL)
-        zmq_observations_locator = f"tcp://{self.remote_ip}:{self.port_zmq_observations}"
-        self.zmq_observation_socket.connect(zmq_observations_locator)
-        self.zmq_observation_socket.setsockopt(zmq.CONFLATE, 1)  # Keep only latest message
-        logger.info(f"Observation socket connected to {zmq_observations_locator}")
+            # Observation socket (PULL): receive observations from host
+            self.zmq_observation_socket = self.zmq_context.socket(zmq.PULL)
+            zmq_observations_locator = f"tcp://{self.remote_ip}:{self.port_zmq_observations}"
+            self.zmq_observation_socket.connect(zmq_observations_locator)
+            self.zmq_observation_socket.setsockopt(zmq.CONFLATE, 1)  # Keep only latest message
+            logger.info(f"Observation socket connected to {zmq_observations_locator}")
 
-        # Wait for first observation to confirm connection
-        poller = zmq.Poller()
-        poller.register(self.zmq_observation_socket, zmq.POLLIN)
-        socks = dict(poller.poll(self.connect_timeout_s * 1000))
+            # Wait for first observation to confirm connection
+            poller = zmq.Poller()
+            poller.register(self.zmq_observation_socket, zmq.POLLIN)
+            socks = dict(poller.poll(self.connect_timeout_s * 1000))
 
-        if self.zmq_observation_socket not in socks or socks[self.zmq_observation_socket] != zmq.POLLIN:
-            raise DeviceNotConnectedError(
-                f"Timeout waiting for Grievous host at {self.remote_ip}. "
-                "Is the host daemon running?"
-            )
+            if self.zmq_observation_socket not in socks or socks[self.zmq_observation_socket] != zmq.POLLIN:
+                raise DeviceNotConnectedError(
+                    f"Timeout waiting for Grievous host at {self.remote_ip}. "
+                    "Is the host daemon running?"
+                )
 
             logger.info("GrievousClient connected successfully")
 
