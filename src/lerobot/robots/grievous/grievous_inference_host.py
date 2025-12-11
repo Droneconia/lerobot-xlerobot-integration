@@ -199,8 +199,8 @@ def main():
                     logger.info(f"[DRY RUN] Action received (not executed): {len(data)} keys")
                     logger.info(f"[DRY RUN] Action values: {data}")
                 else:
-                # Execute action on follower (XLerobot component)
-                robot.send_action(data)
+                    # Execute action on follower (XLerobot component)
+                    robot.send_action(data)
                     logger.info(f"Action received and executed: {len(data)} keys")
                 
                 # Reset watchdog timer
