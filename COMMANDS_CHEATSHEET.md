@@ -108,6 +108,7 @@ export EPISODES=1
 lerobot-record \
     --robot.type=grievous_client \
     --robot.reverse_connection=true \
+    --robot.connect_timeout_s=30 \
     --policy.path="${POLICY_PATH}" \
     --dataset.repo_id="Grievous-Robot/eval_remote" \
     --dataset.num_episodes=${EPISODES} \
@@ -122,7 +123,7 @@ cd ~/Code/lerobot-xlerobot-integration
 conda activate grievous
 
 # Set Runpod's IP (from curl ifconfig.me above):
-export RUNPOD_IP="209.170.80.156"  # Replace with actual Runpod IP
+export RUNPOD_IP="209.170.80.132"  # Replace with actual Runpod IP
 
 # For dry-run (safe testing - logs actions, doesn't execute):
 python -m lerobot.robots.grievous.grievous_inference_host \
