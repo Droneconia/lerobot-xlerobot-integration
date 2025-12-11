@@ -86,18 +86,18 @@ class GrievousInferenceHost:
         else:
             # Normal mode: BIND locally (server mode)
             logger.info(f"Binding GrievousInferenceHost on ports {config.port_zmq_cmd}/{config.port_zmq_observations}...")
-        
-        # Command socket: RECEIVE actions from client (PULL)
-        self.zmq_cmd_socket = self.zmq_context.socket(zmq.PULL)
-        # Note: CONFLATE doesn't work with PULL sockets - removed for proper message delivery
-        self.zmq_cmd_socket.bind(f"tcp://*:{config.port_zmq_cmd}")
-        logger.info(f"Command socket (PULL) bound to tcp://*:{config.port_zmq_cmd}")
-        
-        # Observation socket: send observations to client
-        self.zmq_observation_socket = self.zmq_context.socket(zmq.PUSH)
-        self.zmq_observation_socket.setsockopt(zmq.CONFLATE, 1)  # Keep only latest message
-        self.zmq_observation_socket.bind(f"tcp://*:{config.port_zmq_observations}")
-        logger.info(f"Observation socket (PUSH) bound to tcp://*:{config.port_zmq_observations}")
+            
+            # Command socket: RECEIVE actions from client (PULL)
+            self.zmq_cmd_socket = self.zmq_context.socket(zmq.PULL)
+            # Note: CONFLATE doesn't work with PULL sockets - removed for proper message delivery
+            self.zmq_cmd_socket.bind(f"tcp://*:{config.port_zmq_cmd}")
+            logger.info(f"Command socket (PULL) bound to tcp://*:{config.port_zmq_cmd}")
+            
+            # Observation socket: send observations to client
+            self.zmq_observation_socket = self.zmq_context.socket(zmq.PUSH)
+            self.zmq_observation_socket.setsockopt(zmq.CONFLATE, 1)  # Keep only latest message
+            self.zmq_observation_socket.bind(f"tcp://*:{config.port_zmq_observations}")
+            logger.info(f"Observation socket (PUSH) bound to tcp://*:{config.port_zmq_observations}")
         
         # Configuration
         self.connection_time_s = config.connection_time_s
@@ -253,11 +253,11 @@ def main():
             
             # 5. Send observation to remote client
             try:
-                host.zmq_observation_socket.send_string(
-                    json.dumps(last_observation), flags=zmq.NOBLOCK
-                )
+                obs_json = json.dumps(last_observation)
+                host.zmq_observation_socket.send_string(obs_json, flags=zmq.NOBLOCK)
+                logger.info(f"Sent observation: {len(obs_json)} bytes")
             except zmq.Again:
-                logger.debug("Dropping observation, no client connected")
+                logger.warning("Dropping observation, no client connected (zmq.Again)")
             except Exception as e:
                 logger.error(f"Failed to send observation: {e}")
             

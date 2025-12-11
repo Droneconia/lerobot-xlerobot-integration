@@ -128,12 +128,16 @@ export RUNPOD_IP="209.170.80.132"  # Replace with actual Runpod IP
 # For dry-run (safe testing - logs actions, doesn't execute):
 python -m lerobot.robots.grievous.grievous_inference_host \
     --remote-ip ${RUNPOD_IP} \
+    --port-cmd 10526 \
+    --port-obs 10527 \
     --dry-run \
     --duration 300
 
 # For real execution (after dry-run looks good):
 python -m lerobot.robots.grievous.grievous_inference_host \
     --remote-ip ${RUNPOD_IP} \
+    --port-cmd 10526 \
+    --port-obs 10527 \
     --duration 300
 ```
 
