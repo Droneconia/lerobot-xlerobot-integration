@@ -266,7 +266,7 @@ def main():
     7. Sends observations to remote client via observation socket
     8. Implements watchdog safety timer
     """
-    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', force=True)
     
     logger.info("Configuring Grievous robot...")
     # Use proper ID for calibration management (avoids None collisions)
