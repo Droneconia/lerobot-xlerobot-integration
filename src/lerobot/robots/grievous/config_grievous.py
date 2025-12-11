@@ -67,12 +67,12 @@ class GrievousConfig(RobotConfig):
     """
     
     # Follower arms ports (XLerobot pattern)
-    port1: str = "/dev/follower_left"  # Follower left arm
-    port2: str = "/dev/follower_right"  # Follower right arm
+    port1: str = "/dev/ttyACM3"  # Follower left arm
+    port2: str = "/dev/ttyACM1"  # Follower right arm
     
     # Leader arms ports
-    leader_left_arm_port: str = "/dev/leader_left"  # Leader left arm
-    leader_right_arm_port: str = "/dev/leader_right"  # Leader right arm
+    leader_left_arm_port: str = "/dev/ttyACM0"  # Leader left arm
+    leader_right_arm_port: str = "/dev/ttyACM2"  # Leader right arm
     
     # Motor settings
     disable_torque_on_disconnect: bool = True
