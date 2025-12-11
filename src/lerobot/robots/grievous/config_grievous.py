@@ -111,11 +111,13 @@ class GrievousHostConfig:
     # Network Configuration
     port_zmq_cmd: int = 5555
     port_zmq_observations: int = 5556
+    remote_ip: str | None = None  # Runpod IP for reverse connection mode (None = bind locally)
     
     # Runtime configuration
     connection_time_s: int = 3600  # Max runtime before auto-shutdown
     watchdog_timeout_ms: int = 500  # Stop robot if no commands received
     max_loop_freq_hz: int = 60  # Control loop frequency
+    dry_run: bool = False  # If True, log actions but don't send to robot (safe testing)
 
 
 @RobotConfig.register_subclass("grievous_client")
@@ -127,12 +129,13 @@ class GrievousClientConfig(RobotConfig):
     """
     
     # REQUIRED FIELDS FIRST (no defaults)
-    remote_ip: str = "192.168.50.47" # IP address of RPi5 - REQUIRED
+    remote_ip: str = "192.168.50.47" # IP address of RPi5 - REQUIRED (ignored in reverse_connection mode)
     
     # OPTIONAL FIELDS (with defaults)
     # ZMQ ports (must match host)
     port_zmq_cmd: int = 5555
     port_zmq_observations: int = 5556
+    reverse_connection: bool = False  # True = bind locally (server mode), False = connect to remote_ip (client mode)
     
     # Polling configuration
     polling_timeout_ms: int = 15

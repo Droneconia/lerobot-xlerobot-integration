@@ -31,6 +31,7 @@ Note: Leader arms are instantiated but not actively used in this mode.
 They are available for future overwrite functionality.
 """
 
+import argparse
 import base64
 import json
 import logging
@@ -57,31 +58,56 @@ class GrievousInferenceHost:
     def __init__(self, config: GrievousHostConfig):
         """Initialize ZMQ sockets for command and observation streaming.
         
+        Supports two modes:
+        - Normal mode (remote_ip=None): Bind locally and wait for client (server mode)
+        - Reverse mode (remote_ip set): Connect to remote client (client mode)
+        
         Args:
-            config: Host configuration (ports, timeouts, loop frequency)
+            config: Host configuration (ports, timeouts, loop frequency, remote_ip)
         """
         self.zmq_context = zmq.Context()
         
-        # Command socket: RECEIVE actions from client (PULL)
-        self.zmq_cmd_socket = self.zmq_context.socket(zmq.PULL)
-        # Note: CONFLATE doesn't work with PULL sockets - removed for proper message delivery
-        self.zmq_cmd_socket.bind(f"tcp://*:{config.port_zmq_cmd}")
-        logger.info(f"Command socket (PULL) bound to tcp://*:{config.port_zmq_cmd}")
-        
-        # Observation socket: send observations to client
-        self.zmq_observation_socket = self.zmq_context.socket(zmq.PUSH)
-        self.zmq_observation_socket.setsockopt(zmq.CONFLATE, 1)  # Keep only latest message
-        self.zmq_observation_socket.bind(f"tcp://*:{config.port_zmq_observations}")
-        logger.info(f"Observation socket (PUSH) bound to tcp://*:{config.port_zmq_observations}")
+        if config.remote_ip is not None:
+            # Reverse connection mode: CONNECT to remote client (client mode)
+            # Used when host is behind NAT and needs to reach out to remote server
+            logger.info(f"Connecting to remote client at {config.remote_ip}:{config.port_zmq_cmd}/{config.port_zmq_observations}...")
+            
+            # Command socket: RECEIVE actions from client (PULL)
+            self.zmq_cmd_socket = self.zmq_context.socket(zmq.PULL)
+            self.zmq_cmd_socket.connect(f"tcp://{config.remote_ip}:{config.port_zmq_cmd}")
+            logger.info(f"Command socket (PULL) connected to tcp://{config.remote_ip}:{config.port_zmq_cmd}")
+            
+            # Observation socket: send observations to client (PUSH)
+            self.zmq_observation_socket = self.zmq_context.socket(zmq.PUSH)
+            self.zmq_observation_socket.setsockopt(zmq.CONFLATE, 1)  # Keep only latest message
+            self.zmq_observation_socket.connect(f"tcp://{config.remote_ip}:{config.port_zmq_observations}")
+            logger.info(f"Observation socket (PUSH) connected to tcp://{config.remote_ip}:{config.port_zmq_observations}")
+            
+        else:
+            # Normal mode: BIND locally (server mode)
+            logger.info(f"Binding GrievousInferenceHost on ports {config.port_zmq_cmd}/{config.port_zmq_observations}...")
+            
+            # Command socket: RECEIVE actions from client (PULL)
+            self.zmq_cmd_socket = self.zmq_context.socket(zmq.PULL)
+            # Note: CONFLATE doesn't work with PULL sockets - removed for proper message delivery
+            self.zmq_cmd_socket.bind(f"tcp://*:{config.port_zmq_cmd}")
+            logger.info(f"Command socket (PULL) bound to tcp://*:{config.port_zmq_cmd}")
+            
+            # Observation socket: send observations to client
+            self.zmq_observation_socket = self.zmq_context.socket(zmq.PUSH)
+            self.zmq_observation_socket.setsockopt(zmq.CONFLATE, 1)  # Keep only latest message
+            self.zmq_observation_socket.bind(f"tcp://*:{config.port_zmq_observations}")
+            logger.info(f"Observation socket (PUSH) bound to tcp://*:{config.port_zmq_observations}")
         
         # Configuration
         self.connection_time_s = config.connection_time_s
         self.watchdog_timeout_ms = config.watchdog_timeout_ms
         self.max_loop_freq_hz = config.max_loop_freq_hz
+        self.dry_run = config.dry_run
         
         logger.info(
             f"GrievousInferenceHost initialized: watchdog={config.watchdog_timeout_ms}ms, "
-            f"freq={config.max_loop_freq_hz}Hz"
+            f"freq={config.max_loop_freq_hz}Hz, dry_run={config.dry_run}"
         )
 
     def disconnect(self) -> None:
@@ -104,9 +130,21 @@ def main():
     5. Sends observations to remote client (via ZMQ)
     6. Implements watchdog safety timer
     """
+    parser = argparse.ArgumentParser(description="Grievous inference host daemon")
+    parser.add_argument("--remote-ip", type=str, default=None,
+                        help="Remote client IP for reverse connection (e.g., Runpod IP)")
+    parser.add_argument("--dry-run", action="store_true",
+                        help="Log actions but don't execute on robot (safe testing)")
+    parser.add_argument("--duration", type=int, default=300,
+                        help="Connection duration in seconds (default: 300)")
+    args = parser.parse_args()
+    
     logging.basicConfig(
         level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
     )
+    
+    if args.dry_run:
+        logger.warning("⚠️  DRY RUN MODE: Actions will be logged but NOT executed on robot")
     
     logger.info("Configuring Grievous robot...")
     # Use proper ID for calibration management (avoids None collisions)
@@ -120,9 +158,11 @@ def main():
     # They are available for future overwrite functionality
     
     logger.info("Starting GrievousInferenceHost daemon...")
-    # For Phase 6.2 testing: use reasonable connection time for manual testing
-    # TODO: Revert to default connection_time_s=3600 after Phase 6.2 testing
-    host_config = GrievousHostConfig(connection_time_s=300)  # 5 minutes for manual testing
+    host_config = GrievousHostConfig(
+        connection_time_s=args.duration,
+        remote_ip=args.remote_ip,
+        dry_run=args.dry_run
+    )
     host = GrievousInferenceHost(host_config)
     
     last_cmd_time = time.time()
@@ -148,13 +188,18 @@ def main():
                     logger.info(f"FIRST ACTION VALUES (first 3): {dict(list(data.items())[:3])}")
                     host._logged_first_action = True
                 
-                # Execute action on follower (XLerobot component)
-                robot.send_action(data)
+                if host.dry_run:
+                    # Dry run mode: Log action but don't execute
+                    logger.info(f"[DRY RUN] Action received (not executed): {len(data)} keys")
+                    logger.info(f"[DRY RUN] Action values: {data}")
+                else:
+                    # Execute action on follower (XLerobot component)
+                    robot.send_action(data)
+                    logger.info(f"Action received and executed: {len(data)} keys")
                 
                 # Reset watchdog timer
                 last_cmd_time = time.time()
                 watchdog_active = False
-                logger.info(f"Action received and executed: {len(data)} keys")  # Changed to INFO for visibility
                 
             except zmq.Again:
                 # No command available (non-blocking)
