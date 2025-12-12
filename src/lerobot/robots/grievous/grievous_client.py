@@ -228,6 +228,14 @@ class GrievousClient(Robot):
                 )
 
             logger.info("GrievousClient connected successfully (reverse connection mode)")
+            
+            # ZMQ slow joiner fix: Allow time for bidirectional connection to fully establish
+            # Without this, early command messages may be silently dropped
+            # 2s delay accounts for network latency and script startup timing differences
+            import time
+            logger.info("Waiting for ZMQ bidirectional connection to stabilize (2s)...")
+            time.sleep(2.0)
+            logger.info("Connection stabilized, ready to send/receive")
 
         else:
             # Normal mode: CONNECT to remote host (client mode)

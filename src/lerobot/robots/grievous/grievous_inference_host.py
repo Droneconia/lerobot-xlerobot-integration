@@ -94,6 +94,14 @@ class GrievousInferenceHost:
             except Exception as e:
                 logger.error(f"✗ Failed to send test observation: {e}")
             
+            # ZMQ slow joiner fix: Allow time for bidirectional connection to fully establish
+            # This ensures the command socket is ready to receive before the remote starts sending
+            # 2s delay accounts for network latency and script startup timing differences
+            logger.info("Waiting for ZMQ bidirectional connection to stabilize (2s)...")
+            import time
+            time.sleep(2.0)
+            logger.info("✓ Connection stabilized, ready to send/receive")
+            
         else:
             # Normal mode: BIND locally (server mode)
             logger.info(f"Binding GrievousInferenceHost on ports {config.port_zmq_cmd}/{config.port_zmq_observations}...")
