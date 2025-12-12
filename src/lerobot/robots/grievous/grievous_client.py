@@ -515,8 +515,14 @@ class GrievousClient(Robot):
 
         # Send action via ZMQ
         try:
-            self.zmq_cmd_socket.send_string(json.dumps(action), flags=zmq.NOBLOCK)
-            logger.debug("Action sent successfully via ZMQ")
+            action_json = json.dumps(action)
+            self.zmq_cmd_socket.send_string(action_json, flags=zmq.NOBLOCK)
+            # Log every 30th action to avoid spam (at 30Hz = once per second)
+            if not hasattr(self, '_action_send_count'):
+                self._action_send_count = 0
+            self._action_send_count += 1
+            if self._action_send_count % 30 == 1:
+                logger.info(f"Action #{self._action_send_count} sent successfully ({len(action_json)} bytes)")
         except zmq.Again:
             logger.warning("Command socket busy, dropping action")
         except Exception as e:
