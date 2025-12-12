@@ -303,15 +303,25 @@ class GrievousClient(Robot):
 
         # Drain queue and keep only the latest message
         last_msg = None
+        msg_count = 0
         while True:
             try:
                 msg = self.zmq_observation_socket.recv_string(zmq.NOBLOCK)
                 last_msg = msg
+                msg_count += 1
             except zmq.Again:
                 break
 
         if last_msg is None:
             logger.warning("Poller indicated data, but failed to retrieve message")
+        else:
+            # Log every 30th observation to avoid spam
+            if not hasattr(self, '_obs_recv_count'):
+                self._obs_recv_count = 0
+                logger.info(f"✓ First observation received ({len(last_msg)} bytes, drained {msg_count} msgs)")
+            self._obs_recv_count += 1
+            if self._obs_recv_count % 30 == 0:
+                logger.info(f"Observation #{self._obs_recv_count} received ({len(last_msg)} bytes, drained {msg_count} msgs)")
 
         return last_msg
 

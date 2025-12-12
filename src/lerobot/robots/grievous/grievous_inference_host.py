@@ -74,14 +74,25 @@ class GrievousInferenceHost:
             
             # Command socket: RECEIVE actions from client (PULL)
             self.zmq_cmd_socket = self.zmq_context.socket(zmq.PULL)
-            self.zmq_cmd_socket.connect(f"tcp://{config.remote_ip}:{config.port_zmq_cmd}")
-            logger.info(f"Command socket (PULL) connected to tcp://{config.remote_ip}:{config.port_zmq_cmd}")
+            cmd_address = f"tcp://{config.remote_ip}:{config.port_zmq_cmd}"
+            self.zmq_cmd_socket.connect(cmd_address)
+            logger.info(f"✓ Command socket (PULL) connected to {cmd_address}")
             
             # Observation socket: send observations to client (PUSH)
             self.zmq_observation_socket = self.zmq_context.socket(zmq.PUSH)
             self.zmq_observation_socket.setsockopt(zmq.CONFLATE, 1)  # Keep only latest message
-            self.zmq_observation_socket.connect(f"tcp://{config.remote_ip}:{config.port_zmq_observations}")
-            logger.info(f"Observation socket (PUSH) connected to tcp://{config.remote_ip}:{config.port_zmq_observations}")
+            obs_address = f"tcp://{config.remote_ip}:{config.port_zmq_observations}"
+            self.zmq_observation_socket.connect(obs_address)
+            logger.info(f"✓ Observation socket (PUSH) connected to {obs_address}")
+            
+            # Test connectivity by sending a dummy observation
+            logger.info("Testing observation socket connectivity...")
+            try:
+                test_msg = json.dumps({"test": "connectivity_check"})
+                self.zmq_observation_socket.send_string(test_msg, flags=zmq.NOBLOCK)
+                logger.info("✓ Test observation sent successfully")
+            except Exception as e:
+                logger.error(f"✗ Failed to send test observation: {e}")
             
         else:
             # Normal mode: BIND locally (server mode)
@@ -191,14 +202,18 @@ def main():
                 
                 # DEBUG: Log first action to see keys/values
                 if not hasattr(host, '_logged_first_action'):
-                    logger.info(f"FIRST ACTION KEYS: {list(data.keys())}")
-                    logger.info(f"FIRST ACTION VALUES (first 3): {dict(list(data.items())[:3])}")
+                    logger.info(f"✓ FIRST ACTION RECEIVED!")
+                    logger.info(f"  Keys: {list(data.keys())}")
+                    logger.info(f"  First 3 values: {dict(list(data.items())[:3])}")
                     host._logged_first_action = True
                 
                 if host.dry_run:
                     # Dry run mode: Log action but don't execute
-                    logger.info(f"[DRY RUN] Action received (not executed): {len(data)} keys")
-                    logger.info(f"[DRY RUN] Action values: {data}")
+                    if not hasattr(host, '_action_recv_count'):
+                        host._action_recv_count = 0
+                    host._action_recv_count += 1
+                    if host._action_recv_count % 30 == 1:  # Log every 30th action
+                        logger.info(f"[DRY RUN] Action #{host._action_recv_count} received: {len(data)} keys")
                 else:
                     # Execute action on follower (XLerobot component)
                     robot.send_action(data)
@@ -210,10 +225,11 @@ def main():
                 
             except zmq.Again:
                 # No command available (non-blocking)
-                if not watchdog_active:
-                    logger.debug("No command available")
+                if not hasattr(host, '_no_cmd_logged'):
+                    logger.warning("✗ No command received yet (zmq.Again)")
+                    host._no_cmd_logged = True
             except Exception as e:
-                logger.error(f"Message fetching/execution failed: {e}")
+                logger.error(f"✗ Message fetching/execution failed: {e}")
             
             # 2. Check watchdog timer
             now = time.time()
