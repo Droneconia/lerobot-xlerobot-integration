@@ -92,6 +92,9 @@ lerobot-record \
 
 **Use when:** RPi5 is behind university NAT (your situation)
 
+⚠️ **LATENCY TESTING MODE:**
+The current policy outputs **6-dim actions** but Grievous needs **17-dim**. Actions are auto-padded with zeros (last 11 dims). You'll see a warning message: `⚠️  LATENCY TEST MODE: Padded action from 6 to 17 dims` in the Runpod console. This is ONLY for latency/pipeline testing, NOT real control. Retrain properly later.
+
 ### STEP 1 - On Runpod (binds and waits for RPi5):
 ```bash
 cd /workspace/lerobot-xlerobot-integration

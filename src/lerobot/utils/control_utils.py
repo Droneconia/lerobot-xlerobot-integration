@@ -28,6 +28,8 @@ import numpy as np
 import torch
 from deepdiff import DeepDiff
 
+from lerobot.utils.constants import ACTION
+
 from lerobot.datasets.lerobot_dataset import LeRobotDataset
 from lerobot.datasets.utils import DEFAULT_FEATURES
 from lerobot.policies.pretrained import PreTrainedPolicy
@@ -109,6 +111,23 @@ def predict_action(
         # Compute the next action with the policy
         # based on the current observation
         action = policy.select_action(observation)
+
+        # % TO-DO: Implement - TEMPORARY HACK for latency testing
+        # Pad 6-dim actions to 17-dim to match Grievous robot (policy was trained on 6-DOF)
+        if action.shape[-1] == 6 and postprocessor is not None:
+            # Check if postprocessor has stats for "action" with 17 dimensions
+            try:
+                if hasattr(postprocessor, '_tensor_stats') and ACTION in postprocessor._tensor_stats:
+                    action_stats = postprocessor._tensor_stats[ACTION]
+                    # Check mean/std dimension (should be 17 for Grievous)
+                    stat_dim = action_stats.get("mean", action_stats.get("std", None))
+                    if stat_dim is not None and stat_dim.shape[-1] == 17:
+                        # Pad with zeros (safe for latency testing, NOT for real control)
+                        padding = torch.zeros(action.shape[0], 11, device=action.device, dtype=action.dtype)
+                        action = torch.cat([action, padding], dim=-1)
+                        print(f"⚠️  LATENCY TEST MODE: Padded action from 6 to 17 dims (last 11 dims are zeros)")
+            except (AttributeError, KeyError):
+                pass  # postprocessor doesn't have expected structure, skip padding
 
         action = postprocessor(action)
 
