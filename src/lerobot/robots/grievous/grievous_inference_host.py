@@ -183,6 +183,13 @@ def main():
     # Also set the root logger explicitly
     logging.getLogger().setLevel(log_level)
     
+    # Suppress noisy third-party library logs unless in verbose mode
+    if not args.verbose:
+        logging.getLogger('draccus').setLevel(logging.WARNING)
+        logging.getLogger('lerobot.cameras').setLevel(logging.INFO)
+        logging.getLogger('lerobot.motors').setLevel(logging.INFO)
+        logging.getLogger('lerobot.teleoperators').setLevel(logging.INFO)
+    
     # Print configuration immediately
     print(f"\n🤖 Configuration:")
     print(f"   Remote IP:    {args.remote_ip if args.remote_ip else 'None (local mode)'}")
