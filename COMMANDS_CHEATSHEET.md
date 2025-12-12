@@ -140,6 +140,15 @@ python -m lerobot.robots.grievous.grievous_inference_host \
     --port-obs 10527 \
     --dry-run \
     --duration 300
+    
+# Add --verbose for detailed DEBUG logs (useful for troubleshooting):
+# python -m lerobot.robots.grievous.grievous_inference_host \
+#     --remote-ip ${RUNPOD_IP} \
+#     --port-cmd 10526 \
+#     --port-obs 10527 \
+#     --dry-run \
+#     --verbose \
+#     --duration 300
 
 # For real execution (after dry-run looks good):
 python -m lerobot.robots.grievous.grievous_inference_host \
