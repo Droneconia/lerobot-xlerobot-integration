@@ -205,9 +205,10 @@ class GrievousClient(Robot):
 
             # Command socket (PUSH): send actions to host
             self.zmq_cmd_socket = self.zmq_context.socket(zmq.PUSH)
+            self.zmq_cmd_socket.setsockopt(zmq.SNDHWM, 1)  # Send High Water Mark = 1 (keep only latest)
+            self.zmq_cmd_socket.setsockopt(zmq.LINGER, 0)  # Don't wait on close
             self.zmq_cmd_socket.bind(f"tcp://*:{self.port_zmq_cmd}")
-            self.zmq_cmd_socket.setsockopt(zmq.CONFLATE, 1)  # Keep only latest message
-            logger.info(f"Command socket bound to tcp://*:{self.port_zmq_cmd}")
+            logger.info(f"Command socket bound to tcp://*:{self.port_zmq_cmd} (SNDHWM=1)")
 
             # Observation socket (PULL): receive observations from host
             self.zmq_observation_socket = self.zmq_context.socket(zmq.PULL)

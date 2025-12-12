@@ -74,9 +74,12 @@ class GrievousInferenceHost:
             
             # Command socket: RECEIVE actions from client (PULL)
             self.zmq_cmd_socket = self.zmq_context.socket(zmq.PULL)
+            # Set socket options for better reliability
+            self.zmq_cmd_socket.setsockopt(zmq.RCVHWM, 1)  # Receive High Water Mark = 1 (keep only latest)
+            self.zmq_cmd_socket.setsockopt(zmq.LINGER, 0)  # Don't wait on close
             cmd_address = f"tcp://{config.remote_ip}:{config.port_zmq_cmd}"
             self.zmq_cmd_socket.connect(cmd_address)
-            logger.info(f"✓ Command socket (PULL) connected to {cmd_address}")
+            logger.info(f"✓ Command socket (PULL) connected to {cmd_address} (RCVHWM=1)")
             
             # Observation socket: send observations to client (PUSH)
             self.zmq_observation_socket = self.zmq_context.socket(zmq.PUSH)
@@ -231,11 +234,12 @@ def main():
             # 1. Try to receive action commands from remote policy
             try:
                 msg = host.zmq_cmd_socket.recv_string(zmq.NOBLOCK)
+                logger.debug(f"recv_string returned: {len(msg) if msg else 0} bytes")
                 data = dict(json.loads(msg))
                 
                 # DEBUG: Log first action to see keys/values
                 if not hasattr(host, '_logged_first_action'):
-                    logger.info(f"✓ FIRST ACTION RECEIVED!")
+                    logger.info(f"✓✓✓ FIRST ACTION RECEIVED! ✓✓✓")
                     logger.info(f"  Keys: {list(data.keys())}")
                     logger.info(f"  First 3 values: {dict(list(data.items())[:3])}")
                     host._logged_first_action = True
@@ -256,13 +260,16 @@ def main():
                 last_cmd_time = time.time()
                 watchdog_active = False
                 
-            except zmq.Again:
+            except zmq.Again as e:
                 # No command available (non-blocking)
                 if not hasattr(host, '_no_cmd_logged'):
-                    logger.warning("✗ No command received yet (zmq.Again)")
+                    logger.warning(f"✗ No command received yet (zmq.Again exception: {e})")
                     host._no_cmd_logged = True
+                logger.debug("zmq.Again - no message available")
+            except json.JSONDecodeError as e:
+                logger.error(f"✗ JSON decode error: {e}, msg length: {len(msg) if 'msg' in locals() else 'N/A'}")
             except Exception as e:
-                logger.error(f"✗ Message fetching/execution failed: {e}")
+                logger.error(f"✗ Message fetching/execution failed: {type(e).__name__}: {e}", exc_info=True)
             
             # 2. Check watchdog timer
             now = time.time()
