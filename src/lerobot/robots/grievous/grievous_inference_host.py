@@ -149,6 +149,11 @@ def main():
     5. Sends observations to remote client (via ZMQ)
     6. Implements watchdog safety timer
     """
+    # Print startup banner BEFORE logging setup to confirm script is running
+    print("=" * 80)
+    print("GRIEVOUS INFERENCE HOST STARTING")
+    print("=" * 80)
+    
     parser = argparse.ArgumentParser(description="Grievous inference host daemon")
     parser.add_argument("--remote-ip", type=str, default=None,
                         help="Remote client IP for reverse connection (e.g., Runpod IP)")
@@ -160,11 +165,30 @@ def main():
                         help="Command port (default: 5555, use external port if port-mapped)")
     parser.add_argument("--port-obs", type=int, default=5556,
                         help="Observation port (default: 5556, use external port if port-mapped)")
+    parser.add_argument("--verbose", action="store_true",
+                        help="Enable DEBUG level logging")
     args = parser.parse_args()
     
+    # Configure logging - force reconfiguration to override any previous setup
+    log_level = logging.DEBUG if args.verbose else logging.INFO
     logging.basicConfig(
-        level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+        level=log_level,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        force=True  # Force reconfiguration even if logging was already initialized
     )
+    
+    # Also set the root logger explicitly
+    logging.getLogger().setLevel(log_level)
+    
+    # Print configuration immediately
+    print(f"\n🤖 Configuration:")
+    print(f"   Remote IP:    {args.remote_ip if args.remote_ip else 'None (local mode)'}")
+    print(f"   Command port: {args.port_cmd}")
+    print(f"   Obs port:     {args.port_obs}")
+    print(f"   Duration:     {args.duration}s")
+    print(f"   Dry run:      {args.dry_run}")
+    print(f"   Verbose:      {args.verbose}")
+    print("=" * 80 + "\n")
     
     if args.dry_run:
         logger.warning("⚠️  DRY RUN MODE: Actions will be logged but NOT executed on robot")
@@ -181,6 +205,7 @@ def main():
     # They are available for future overwrite functionality
     
     logger.info("Starting GrievousInferenceHost daemon...")
+    logger.info(f"Configuration: remote_ip={args.remote_ip}, cmd_port={args.port_cmd}, obs_port={args.port_obs}")
     host_config = GrievousHostConfig(
         connection_time_s=args.duration,
         remote_ip=args.remote_ip,
