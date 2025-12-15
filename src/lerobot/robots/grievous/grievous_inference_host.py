@@ -55,8 +55,9 @@ def generate_mock_observation():
     """
     # Generate synthetic camera images (640x480 RGB)
     # Use colored noise to simulate realistic image data size
+    # NOTE: Use ORIGINAL camera names (left_wrist, right_wrist, head) so rename_map can work
     mock_images = {}
-    for cam_name in ["observation.images.camera1", "observation.images.camera2", "observation.images.camera3"]:
+    for cam_name in ["left_wrist", "right_wrist", "head"]:
         # Create colored noise image
         img = np.random.randint(0, 256, (480, 640, 3), dtype=np.uint8)
         # Add a simple pattern to make it look more like a real image
@@ -411,7 +412,7 @@ def main():
             else:
                 # Mock mode: Encode synthetic images
                 logger.debug("Encoding mock camera images...")
-                for cam_key in ["observation.images.camera1", "observation.images.camera2", "observation.images.camera3"]:
+                for cam_key in ["left_wrist", "right_wrist", "head"]:
                     if cam_key in last_observation:
                         try:
                             img = last_observation[cam_key]
