@@ -160,6 +160,71 @@ python -m lerobot.robots.grievous.grievous_inference_host \
 
 ---
 
+## 4. Latency Testing Mode - Mock Hardware (No Physical Robot)
+
+**Use when:** Testing the cloud-to-robot pipeline without physical hardware
+
+### STEP 1 - On Runpod (binds and waits for client):
+```bash
+cd /workspace/lerobot-xlerobot-integration
+
+# First get Runpod's public IP:
+curl ifconfig.me
+# Example output: 209.170.80.156
+
+export POLICY_PATH="/workspace/smolvla_finetuned_5k/pretrained_model"
+export EPISODES=1
+export PYTHONDONTWRITEBYTECODE=1
+export PYTHONUNBUFFERED=1
+
+# Start Runpod in server mode:
+lerobot-record \
+    --robot.type=grievous_client \
+    --robot.reverse_connection=true \
+    --robot.connect_timeout_s=120 \
+    --policy.path="${POLICY_PATH}" \
+    --dataset.repo_id="Grievous-Robot/eval_remote" \
+    --dataset.num_episodes=${EPISODES} \
+    --dataset.single_task="Latency test" \
+    --dataset.push_to_hub=false \
+    --display_data=false \
+    --play_sounds=false \
+    --dataset.rename_map='{"observation.images.left_wrist": "observation.images.camera1", "observation.images.right_wrist": "observation.images.camera2", "observation.images.head": "observation.images.camera3"}'
+```
+
+### STEP 2 - On Laptop (simulates RPi5 with synthetic data):
+```bash
+cd ~/Code/lerobot-xlerobot-integration
+conda activate grievous
+
+# Set Runpod's IP and ports (check Runpod dashboard for current values):
+export RUNPOD_IP="209.170.80.132"  # From: curl ifconfig.me on Runpod
+# Port mapping from Runpod dashboard "Direct TCP ports":
+# External 10526 -> Internal 5555 (commands)
+# External 10527 -> Internal 5556 (observations)
+
+# Run mock hardware test:
+python -m lerobot.robots.grievous.grievous_inference_host \
+    --remote-ip ${RUNPOD_IP} \
+    --port-cmd 10526 \
+    --port-obs 10527 \
+    --mock-hardware \
+    --duration 60
+
+# This will:
+# - Generate synthetic camera images (640x480 RGB)
+# - Generate random robot states (17-dim)
+# - Measure round-trip latency: observation sent → action received
+# - Print latency statistics (mean, std, min, max, percentiles)
+```
+
+**What you'll see:**
+- Real-time latency measurements every 30 actions
+- Final statistics on shutdown with mean, std, min, max, median, 95th/99th percentiles
+- Typical cloud latency: 50-200ms depending on network conditions
+
+---
+
 ## Quick Tips
 
 ### Keyboard Controls (during recording):

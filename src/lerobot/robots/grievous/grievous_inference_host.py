@@ -47,6 +47,53 @@ from .config_grievous import GrievousConfig, GrievousHostConfig
 logger = logging.getLogger(__name__)
 
 
+def generate_mock_observation():
+    """Generate synthetic observation for latency testing without hardware.
+    
+    Returns:
+        dict: Mock observation matching Grievous robot's observation structure
+    """
+    # Generate synthetic camera images (640x480 RGB)
+    # Use colored noise to simulate realistic image data size
+    mock_images = {}
+    for cam_name in ["observation.images.camera1", "observation.images.camera2", "observation.images.camera3"]:
+        # Create colored noise image
+        img = np.random.randint(0, 256, (480, 640, 3), dtype=np.uint8)
+        # Add a simple pattern to make it look more like a real image
+        img[:, :, 0] = (img[:, :, 0] * 0.6 + 100).astype(np.uint8)  # Red channel bias
+        img[:, :, 1] = (img[:, :, 1] * 0.8 + 80).astype(np.uint8)   # Green channel bias
+        img[:, :, 2] = (img[:, :, 2] * 0.7 + 90).astype(np.uint8)   # Blue channel bias
+        mock_images[cam_name] = img
+    
+    # Generate synthetic state (17-dimensional action space)
+    # Match the structure from Grievous robot
+    mock_state = {
+        # Mobile base (3 DOF: x, y, yaw)
+        "observation.state.base.x": np.random.uniform(-0.1, 0.1),
+        "observation.state.base.y": np.random.uniform(-0.1, 0.1),
+        "observation.state.base.yaw": np.random.uniform(-0.2, 0.2),
+        # Follower arms (assumed 7 DOF each for typical mobile manipulator)
+        "observation.state.follower.left_arm.joint_0": np.random.uniform(-np.pi, np.pi),
+        "observation.state.follower.left_arm.joint_1": np.random.uniform(-np.pi/2, np.pi/2),
+        "observation.state.follower.left_arm.joint_2": np.random.uniform(-np.pi, np.pi),
+        "observation.state.follower.left_arm.joint_3": np.random.uniform(-np.pi/2, np.pi/2),
+        "observation.state.follower.left_arm.joint_4": np.random.uniform(-np.pi, np.pi),
+        "observation.state.follower.left_arm.joint_5": np.random.uniform(-np.pi/2, np.pi/2),
+        "observation.state.follower.left_arm.joint_6": np.random.uniform(-np.pi, np.pi),
+        "observation.state.follower.right_arm.joint_0": np.random.uniform(-np.pi, np.pi),
+        "observation.state.follower.right_arm.joint_1": np.random.uniform(-np.pi/2, np.pi/2),
+        "observation.state.follower.right_arm.joint_2": np.random.uniform(-np.pi, np.pi),
+        "observation.state.follower.right_arm.joint_3": np.random.uniform(-np.pi/2, np.pi/2),
+        "observation.state.follower.right_arm.joint_4": np.random.uniform(-np.pi, np.pi),
+        "observation.state.follower.right_arm.joint_5": np.random.uniform(-np.pi/2, np.pi/2),
+        "observation.state.follower.right_arm.joint_6": np.random.uniform(-np.pi, np.pi),
+    }
+    
+    # Combine images and state
+    observation = {**mock_images, **mock_state}
+    return observation
+
+
 class GrievousInferenceHost:
     """ZMQ-based host daemon for Grievous robot running on RPi5.
     
@@ -162,6 +209,8 @@ def main():
                         help="Remote client IP for reverse connection (e.g., Runpod IP)")
     parser.add_argument("--dry-run", action="store_true",
                         help="Log actions but don't execute on robot (safe testing)")
+    parser.add_argument("--mock-hardware", action="store_true",
+                        help="Use synthetic observations (no physical robot needed)")
     parser.add_argument("--duration", type=int, default=300,
                         help="Connection duration in seconds (default: 300)")
     parser.add_argument("--port-cmd", type=int, default=5555,
@@ -197,22 +246,27 @@ def main():
     print(f"   Obs port:     {args.port_obs}")
     print(f"   Duration:     {args.duration}s")
     print(f"   Dry run:      {args.dry_run}")
+    print(f"   Mock HW:      {args.mock_hardware}")
     print(f"   Verbose:      {args.verbose}")
     print("=" * 80 + "\n")
     
     if args.dry_run:
         logger.warning("⚠️  DRY RUN MODE: Actions will be logged but NOT executed on robot")
     
-    logger.info("Configuring Grievous robot...")
-    # Use proper ID for calibration management (avoids None collisions)
-    robot_config = GrievousConfig(id="grievous_robot")
-    robot = Grievous(robot_config)
-    
-    logger.info("Connecting Grievous robot (using existing calibration)...")
-    robot.connect(calibrate=False)  # Use existing calibration from cache
-    logger.info("Grievous connected successfully")
-    # Note: Leader arms are connected but not actively used in inference mode
-    # They are available for future overwrite functionality
+    if args.mock_hardware:
+        logger.warning("🤖 MOCK HARDWARE MODE: Using synthetic observations for latency testing")
+        robot = None  # No physical robot in mock mode
+    else:
+        logger.info("Configuring Grievous robot...")
+        # Use proper ID for calibration management (avoids None collisions)
+        robot_config = GrievousConfig(id="grievous_robot")
+        robot = Grievous(robot_config)
+        
+        logger.info("Connecting Grievous robot (using existing calibration)...")
+        robot.connect(calibrate=False)  # Use existing calibration from cache
+        logger.info("Grievous connected successfully")
+        # Note: Leader arms are connected but not actively used in inference mode
+        # They are available for future overwrite functionality
     
     logger.info("Starting GrievousInferenceHost daemon...")
     logger.info(f"Configuration: remote_ip={args.remote_ip}, cmd_port={args.port_cmd}, obs_port={args.port_obs}")
@@ -228,6 +282,10 @@ def main():
     last_cmd_time = time.time()
     watchdog_active = False
     logger.info("Waiting for commands from remote policy...")
+    
+    # Latency tracking for mock mode
+    latencies = []  # Store round-trip times (observation sent → action received)
+    last_observation_sent_time = None
     
     try:
         # Main control loop
@@ -246,8 +304,22 @@ def main():
             # 1. Try to receive action commands from remote policy
             try:
                 msg = host.zmq_cmd_socket.recv_string(zmq.NOBLOCK)
+                action_received_time = time.perf_counter()  # Timestamp for latency measurement
                 logger.debug(f"recv_string returned: {len(msg) if msg else 0} bytes")
                 data = dict(json.loads(msg))
+                
+                # Calculate latency if in mock mode and we sent an observation
+                if args.mock_hardware and last_observation_sent_time is not None:
+                    latency_ms = (action_received_time - last_observation_sent_time) * 1000
+                    latencies.append(latency_ms)
+                    if len(latencies) % 30 == 1:  # Log stats every 30 actions
+                        mean_lat = np.mean(latencies)
+                        std_lat = np.std(latencies)
+                        min_lat = np.min(latencies)
+                        max_lat = np.max(latencies)
+                        logger.info(f"📊 LATENCY [{len(latencies)} samples]: "
+                                  f"mean={mean_lat:.1f}ms, std={std_lat:.1f}ms, "
+                                  f"min={min_lat:.1f}ms, max={max_lat:.1f}ms")
                 
                 # DEBUG: Log first action to see keys/values
                 if not hasattr(host, '_logged_first_action'):
@@ -256,13 +328,14 @@ def main():
                     logger.info(f"  First 3 values: {dict(list(data.items())[:3])}")
                     host._logged_first_action = True
                 
-                if host.dry_run:
-                    # Dry run mode: Log action but don't execute
+                if host.dry_run or args.mock_hardware:
+                    # Dry run or mock mode: Log action but don't execute
                     if not hasattr(host, '_action_recv_count'):
                         host._action_recv_count = 0
                     host._action_recv_count += 1
                     if host._action_recv_count % 30 == 1:  # Log every 30th action
-                        logger.info(f"[DRY RUN] Action #{host._action_recv_count} received: {len(data)} keys")
+                        mode_str = "MOCK" if args.mock_hardware else "DRY RUN"
+                        logger.info(f"[{mode_str}] Action #{host._action_recv_count} received: {len(data)} keys")
                 else:
                     # Execute action on follower (XLerobot component)
                     robot.send_action(data)
@@ -287,48 +360,78 @@ def main():
             now = time.time()
             if (now - last_cmd_time > host.watchdog_timeout_ms / 1000) and not watchdog_active:
                 logger.warning(
-                    f"Command not received for {host.watchdog_timeout_ms}ms. Stopping base for safety."
+                    f"Command not received for {host.watchdog_timeout_ms}ms. "
+                    f"{'Would stop base' if args.mock_hardware else 'Stopping base'} for safety."
                 )
                 watchdog_active = True
                 # Stop the mobile base (safety feature)
-                robot.xlerobot.stop_base()
+                if not args.mock_hardware:
+                    robot.xlerobot.stop_base()
             
-            # 3. Get observation from Grievous (follower + cameras)
-            # Note: Leader arms are not read in inference mode
-            if iteration_count % 30 == 1:
-                logger.info("Getting observation from robot...")
-            last_observation = robot.get_observation()
-            if iteration_count % 30 == 1:
-                logger.info(f"Got observation with {len(last_observation)} keys")
+            # 3. Get observation from Grievous (follower + cameras) or generate mock
+            if args.mock_hardware:
+                # Generate synthetic observation for latency testing
+                if iteration_count % 30 == 1:
+                    logger.info("Generating mock observation...")
+                last_observation = generate_mock_observation()
+                if iteration_count % 30 == 1:
+                    logger.info(f"Generated mock observation with {len(last_observation)} keys")
+            else:
+                # Note: Leader arms are not read in inference mode
+                if iteration_count % 30 == 1:
+                    logger.info("Getting observation from robot...")
+                last_observation = robot.get_observation()
+                if iteration_count % 30 == 1:
+                    logger.info(f"Got observation with {len(last_observation)} keys")
             
             # 4. Encode camera images to base64 for network transmission
-            logger.debug("Encoding camera images...")
-            for cam_key in robot.xlerobot.cameras.keys():
-                if cam_key in last_observation:
-                    # Check if image is valid (not None and not empty)
-                    try:
-                        img = last_observation[cam_key]
-                        if img is None or not isinstance(img, np.ndarray) or img.size == 0:
-                            logger.debug(f"Camera {cam_key} returned empty/invalid image, skipping encode")
+            if not args.mock_hardware:
+                logger.debug("Encoding camera images...")
+                for cam_key in robot.xlerobot.cameras.keys():
+                    if cam_key in last_observation:
+                        # Check if image is valid (not None and not empty)
+                        try:
+                            img = last_observation[cam_key]
+                            if img is None or not isinstance(img, np.ndarray) or img.size == 0:
+                                logger.debug(f"Camera {cam_key} returned empty/invalid image, skipping encode")
+                                last_observation[cam_key] = ""
+                                continue
+                            
+                            ret, buffer = cv2.imencode(
+                                ".jpg", img, [int(cv2.IMWRITE_JPEG_QUALITY), 90]
+                            )
+                            if ret:
+                                last_observation[cam_key] = base64.b64encode(buffer).decode("utf-8")
+                            else:
+                                logger.warning(f"Failed to encode camera {cam_key}")
+                                last_observation[cam_key] = ""
+                        except Exception as e:
+                            logger.error(f"Failed to encode camera {cam_key}: {e}")
                             last_observation[cam_key] = ""
-                            continue
-                        
-                        ret, buffer = cv2.imencode(
-                            ".jpg", img, [int(cv2.IMWRITE_JPEG_QUALITY), 90]
-                        )
-                        if ret:
-                            last_observation[cam_key] = base64.b64encode(buffer).decode("utf-8")
-                        else:
-                            logger.warning(f"Failed to encode camera {cam_key}")
+            else:
+                # Mock mode: Encode synthetic images
+                logger.debug("Encoding mock camera images...")
+                for cam_key in ["observation.images.camera1", "observation.images.camera2", "observation.images.camera3"]:
+                    if cam_key in last_observation:
+                        try:
+                            img = last_observation[cam_key]
+                            ret, buffer = cv2.imencode(
+                                ".jpg", img, [int(cv2.IMWRITE_JPEG_QUALITY), 90]
+                            )
+                            if ret:
+                                last_observation[cam_key] = base64.b64encode(buffer).decode("utf-8")
+                            else:
+                                logger.warning(f"Failed to encode mock camera {cam_key}")
+                                last_observation[cam_key] = ""
+                        except Exception as e:
+                            logger.error(f"Failed to encode mock camera {cam_key}: {e}")
                             last_observation[cam_key] = ""
-                    except Exception as e:
-                        logger.error(f"Failed to encode camera {cam_key}: {e}")
-                        last_observation[cam_key] = ""
             
             # 5. Send observation to remote client
             try:
                 obs_json = json.dumps(last_observation)
                 host.zmq_observation_socket.send_string(obs_json, flags=zmq.NOBLOCK)
+                last_observation_sent_time = time.perf_counter()  # Track timestamp for latency
                 if iteration_count % 30 == 1:
                     logger.info(f"Sent observation #{iteration_count}: {len(obs_json)} bytes")
             except zmq.Again:
@@ -349,8 +452,24 @@ def main():
         logger.info("Keyboard interrupt received. Shutting down...")
     
     finally:
+        # Print final latency statistics in mock mode
+        if args.mock_hardware and len(latencies) > 0:
+            logger.info("=" * 80)
+            logger.info("📊 FINAL LATENCY STATISTICS")
+            logger.info("=" * 80)
+            logger.info(f"Total samples:     {len(latencies)}")
+            logger.info(f"Mean latency:      {np.mean(latencies):.2f} ms")
+            logger.info(f"Std deviation:     {np.std(latencies):.2f} ms")
+            logger.info(f"Min latency:       {np.min(latencies):.2f} ms")
+            logger.info(f"Max latency:       {np.max(latencies):.2f} ms")
+            logger.info(f"Median latency:    {np.median(latencies):.2f} ms")
+            logger.info(f"95th percentile:   {np.percentile(latencies, 95):.2f} ms")
+            logger.info(f"99th percentile:   {np.percentile(latencies, 99):.2f} ms")
+            logger.info("=" * 80)
+        
         logger.info("Cleaning up Grievous inference host...")
-        robot.disconnect()
+        if robot is not None:
+            robot.disconnect()
         host.disconnect()
         logger.info("Grievous inference host shutdown complete")
 
