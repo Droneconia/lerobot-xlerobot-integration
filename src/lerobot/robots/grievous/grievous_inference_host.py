@@ -68,26 +68,27 @@ def generate_mock_observation():
     
     # Generate synthetic state (17-dimensional action space)
     # Match the structure from Grievous robot
+    # NOTE: Convert to Python float for JSON serialization compatibility
     mock_state = {
         # Mobile base (3 DOF: x, y, yaw)
-        "observation.state.base.x": np.random.uniform(-0.1, 0.1),
-        "observation.state.base.y": np.random.uniform(-0.1, 0.1),
-        "observation.state.base.yaw": np.random.uniform(-0.2, 0.2),
+        "observation.state.base.x": float(np.random.uniform(-0.1, 0.1)),
+        "observation.state.base.y": float(np.random.uniform(-0.1, 0.1)),
+        "observation.state.base.yaw": float(np.random.uniform(-0.2, 0.2)),
         # Follower arms (assumed 7 DOF each for typical mobile manipulator)
-        "observation.state.follower.left_arm.joint_0": np.random.uniform(-np.pi, np.pi),
-        "observation.state.follower.left_arm.joint_1": np.random.uniform(-np.pi/2, np.pi/2),
-        "observation.state.follower.left_arm.joint_2": np.random.uniform(-np.pi, np.pi),
-        "observation.state.follower.left_arm.joint_3": np.random.uniform(-np.pi/2, np.pi/2),
-        "observation.state.follower.left_arm.joint_4": np.random.uniform(-np.pi, np.pi),
-        "observation.state.follower.left_arm.joint_5": np.random.uniform(-np.pi/2, np.pi/2),
-        "observation.state.follower.left_arm.joint_6": np.random.uniform(-np.pi, np.pi),
-        "observation.state.follower.right_arm.joint_0": np.random.uniform(-np.pi, np.pi),
-        "observation.state.follower.right_arm.joint_1": np.random.uniform(-np.pi/2, np.pi/2),
-        "observation.state.follower.right_arm.joint_2": np.random.uniform(-np.pi, np.pi),
-        "observation.state.follower.right_arm.joint_3": np.random.uniform(-np.pi/2, np.pi/2),
-        "observation.state.follower.right_arm.joint_4": np.random.uniform(-np.pi, np.pi),
-        "observation.state.follower.right_arm.joint_5": np.random.uniform(-np.pi/2, np.pi/2),
-        "observation.state.follower.right_arm.joint_6": np.random.uniform(-np.pi, np.pi),
+        "observation.state.follower.left_arm.joint_0": float(np.random.uniform(-np.pi, np.pi)),
+        "observation.state.follower.left_arm.joint_1": float(np.random.uniform(-np.pi/2, np.pi/2)),
+        "observation.state.follower.left_arm.joint_2": float(np.random.uniform(-np.pi, np.pi)),
+        "observation.state.follower.left_arm.joint_3": float(np.random.uniform(-np.pi/2, np.pi/2)),
+        "observation.state.follower.left_arm.joint_4": float(np.random.uniform(-np.pi, np.pi)),
+        "observation.state.follower.left_arm.joint_5": float(np.random.uniform(-np.pi/2, np.pi/2)),
+        "observation.state.follower.left_arm.joint_6": float(np.random.uniform(-np.pi, np.pi)),
+        "observation.state.follower.right_arm.joint_0": float(np.random.uniform(-np.pi, np.pi)),
+        "observation.state.follower.right_arm.joint_1": float(np.random.uniform(-np.pi/2, np.pi/2)),
+        "observation.state.follower.right_arm.joint_2": float(np.random.uniform(-np.pi, np.pi)),
+        "observation.state.follower.right_arm.joint_3": float(np.random.uniform(-np.pi/2, np.pi/2)),
+        "observation.state.follower.right_arm.joint_4": float(np.random.uniform(-np.pi, np.pi)),
+        "observation.state.follower.right_arm.joint_5": float(np.random.uniform(-np.pi/2, np.pi/2)),
+        "observation.state.follower.right_arm.joint_6": float(np.random.uniform(-np.pi, np.pi)),
     }
     
     # Combine images and state
@@ -212,6 +213,10 @@ def main():
                         help="Log actions but don't execute on robot (safe testing)")
     parser.add_argument("--mock-hardware", action="store_true",
                         help="Use synthetic observations (no physical robot needed)")
+    parser.add_argument("--latency-benchmark", action="store_true",
+                        help="Synchronous latency measurement mode (send one obs, wait for response)")
+    parser.add_argument("--num-measurements", type=int, default=50,
+                        help="Number of latency measurements to collect (default: 50)")
     parser.add_argument("--duration", type=int, default=300,
                         help="Connection duration in seconds (default: 300)")
     parser.add_argument("--port-cmd", type=int, default=5555,
@@ -248,6 +253,9 @@ def main():
     print(f"   Duration:     {args.duration}s")
     print(f"   Dry run:      {args.dry_run}")
     print(f"   Mock HW:      {args.mock_hardware}")
+    print(f"   Latency mode: {args.latency_benchmark}")
+    if args.latency_benchmark:
+        print(f"   Measurements: {args.num_measurements}")
     print(f"   Verbose:      {args.verbose}")
     print("=" * 80 + "\n")
     
@@ -279,6 +287,104 @@ def main():
         port_zmq_observations=args.port_obs
     )
     host = GrievousInferenceHost(host_config)
+    
+    # Latency benchmark mode: Send one observation, wait for response, measure time
+    if args.latency_benchmark:
+        if not args.mock_hardware:
+            logger.error("Latency benchmark mode requires --mock-hardware flag")
+            return
+        
+        logger.info("=" * 80)
+        logger.info("LATENCY BENCHMARK MODE")
+        logger.info("=" * 80)
+        logger.info(f"Will send {args.num_measurements} observations synchronously and measure round-trip time")
+        logger.info("=" * 80)
+        
+        latencies = []
+        timeout_ms = 30000  # 30 second timeout per request
+        
+        for i in range(args.num_measurements):
+            # Generate observation
+            observation = generate_mock_observation()
+            
+            # Encode images
+            for cam_key in ["left_wrist", "right_wrist", "head"]:
+                if cam_key in observation:
+                    img = observation[cam_key]
+                    ret, buffer = cv2.imencode(".jpg", img, [int(cv2.IMWRITE_JPEG_QUALITY), 90])
+                    if ret:
+                        observation[cam_key] = base64.b64encode(buffer).decode("utf-8")
+                    else:
+                        logger.error(f"Failed to encode {cam_key}")
+            
+            # Send observation and record time
+            try:
+                obs_json = json.dumps(observation)
+                logger.debug(f"  Observation has {len(observation)} keys: {list(observation.keys())[:5]}")
+                logger.debug(f"  JSON length: {len(obs_json)} bytes")
+            except (TypeError, ValueError) as e:
+                logger.error(f"[{i+1}/{args.num_measurements}] Failed to serialize observation to JSON: {e}")
+                logger.error(f"  Observation keys: {list(observation.keys())}")
+                logger.error(f"  Sample values: {[(k, type(v).__name__) for k, v in list(observation.items())[:5]]}")
+                continue
+            
+            send_time = time.perf_counter()
+            
+            try:
+                host.zmq_observation_socket.send_string(obs_json, flags=zmq.NOBLOCK)
+                logger.info(f"[{i+1}/{args.num_measurements}] Sent observation ({len(obs_json)} bytes, {len(observation)} keys), waiting for action...")
+            except zmq.Again:
+                logger.error(f"[{i+1}/{args.num_measurements}] Failed to send observation (socket busy)")
+                continue
+            
+            # Wait for action response (blocking with timeout)
+            poller = zmq.Poller()
+            poller.register(host.zmq_cmd_socket, zmq.POLLIN)
+            
+            socks = dict(poller.poll(timeout_ms))
+            
+            if host.zmq_cmd_socket in socks and socks[host.zmq_cmd_socket] == zmq.POLLIN:
+                # Receive action
+                msg = host.zmq_cmd_socket.recv_string(zmq.NOBLOCK)
+                receive_time = time.perf_counter()
+                
+                # Calculate latency
+                latency_ms = (receive_time - send_time) * 1000
+                latencies.append(latency_ms)
+                
+                logger.info(f"[{i+1}/{args.num_measurements}] ✓ Received action in {latency_ms:.2f} ms")
+                
+                # Parse to verify it's valid
+                try:
+                    action_data = json.loads(msg)
+                    logger.debug(f"  Action keys: {len(action_data)}")
+                except json.JSONDecodeError as e:
+                    logger.warning(f"  Invalid JSON in action: {e}")
+            else:
+                logger.error(f"[{i+1}/{args.num_measurements}] ✗ Timeout waiting for action (>{timeout_ms}ms)")
+        
+        # Print final statistics
+        if len(latencies) > 0:
+            logger.info("")
+            logger.info("=" * 80)
+            logger.info("📊 LATENCY BENCHMARK RESULTS")
+            logger.info("=" * 80)
+            logger.info(f"Successful measurements: {len(latencies)}/{args.num_measurements}")
+            logger.info(f"Mean latency:            {np.mean(latencies):.2f} ms")
+            logger.info(f"Std deviation:           {np.std(latencies):.2f} ms")
+            logger.info(f"Min latency:             {np.min(latencies):.2f} ms")
+            logger.info(f"Max latency:             {np.max(latencies):.2f} ms")
+            logger.info(f"Median latency:          {np.median(latencies):.2f} ms")
+            logger.info(f"95th percentile:         {np.percentile(latencies, 95):.2f} ms")
+            logger.info(f"99th percentile:         {np.percentile(latencies, 99):.2f} ms")
+            logger.info("=" * 80)
+        else:
+            logger.error("No successful measurements collected!")
+        
+        # Clean up and exit
+        host.disconnect()
+        logger.info("Latency benchmark complete")
+        return
     
     last_cmd_time = time.time()
     watchdog_active = False
