@@ -119,7 +119,7 @@ fi
 # Step 4: Create Conda Environment
 # ============================================================================
 echo ""
-echo "Step 4: Creating conda environment 'grievous' with Python 3.10..."
+echo "Step 4: Creating conda environment 'grievous' with Python 3.11..."
 
 # Source conda to use it in this script
 source /workspace/miniconda3/etc/profile.d/conda.sh
@@ -131,11 +131,12 @@ conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/r 
 
 # Create environment if it doesn't exist
 # System PyTorch will be accessed via PYTHONPATH (set in Step 7)
+# NOTE: Using Python 3.11 to match system PyTorch (compiled for Python 3.11)
 if conda env list | grep -q "grievous"; then
     echo "Conda environment 'grievous' already exists, skipping creation."
 else
-    conda create -y -n grievous python=3.10
-    echo "Conda environment 'grievous' created successfully."
+    conda create -y -n grievous python=3.11
+    echo "Conda environment 'grievous' created successfully with Python 3.11."
 fi
 
 # Activate environment
