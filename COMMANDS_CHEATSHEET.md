@@ -108,22 +108,27 @@ export EPISODES=1
 lerobot-record \
     --robot.type=grievous_client \
     --robot.reverse_connection=true \
-    --robot.connect_timeout_s=30 \
+    --robot.connect_timeout_s=120 \
     --policy.path="${POLICY_PATH}" \
     --dataset.repo_id="Grievous-Robot/eval_remote" \
     --dataset.num_episodes=${EPISODES} \
     --dataset.single_task="Remote inference test" \
     --dataset.push_to_hub=false \
-    --display_data=false
+    --display_data=false \
+    --play_sounds=false \
+    --dataset.rename_map='{"observation.images.left_wrist": "observation.images.camera1", "observation.images.right_wrist": "observation.images.camera2", "observation.images.head": "observation.images.camera3"}'
 ```
 
 ### STEP 2 - On RPi5 (connects to Runpod):
 ```bash
-cd ~/Code/lerobot-xlerobot-integration
-conda activate grievous
+cd ~/Grievous
+conda activate lerobot
 
-# Set Runpod's IP (from curl ifconfig.me above):
-export RUNPOD_IP="209.170.80.132"  # Replace with actual Runpod IP
+# Set Runpod's IP and ports (check Runpod dashboard for current values):
+export RUNPOD_IP="209.170.80.132"  # From: curl ifconfig.me on Runpod
+# Port mapping from Runpod dashboard "Direct TCP ports":
+# External 10526 -> Internal 5555 (commands)
+# External 10527 -> Internal 5556 (observations)
 
 # For dry-run (safe testing - logs actions, doesn't execute):
 python -m lerobot.robots.grievous.grievous_inference_host \
@@ -191,12 +196,19 @@ hostname -I
 
 Based on our troubleshooting:
 - **RPi5 is behind university NAT** → Use **Reverse Connection** (Section 3)
-- **Runpod IP**: Get with `curl ifconfig.me` on Runpod
+- **Runpod IP**: Get with `curl ifconfig.me` on Runpod (currently: 209.170.80.132)
+- **Runpod ports**: Check dashboard "Direct TCP ports" (currently: 10526→5555, 10527→5556)
 - **RPi5 IP**: `192.168.50.148` (local, won't work from outside)
+
+**Important notes:**
+- Runpod IP and ports change when you restart/create new pods
+- Always check `curl ifconfig.me` and dashboard for current values
+- Use `--play_sounds=false` on Runpod (no spd-say installed)
 
 **For first-time testing:**
 1. Use **Section 3** (Reverse Connection)
-2. Start with `--dry-run` flag on RPi5
-3. Watch the logs to verify actions look reasonable
-4. Remove `--dry-run` for real execution
+2. Start Runpod FIRST, wait for "Waiting for host to connect..."
+3. Then start RPi5 with `--dry-run` flag
+4. Watch RPi5 logs to verify actions look reasonable
+5. Remove `--dry-run` for real execution
 
