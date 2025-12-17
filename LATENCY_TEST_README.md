@@ -15,13 +15,18 @@ The latency test measures round-trip time for:
 
 ### On Laptop
 ```bash
-# Install required packages (should already be installed)
+# Activate conda environment
+conda activate lerobot
+
+# Install required packages (should already be installed in lerobot environment)
 pip install opencv-python numpy pyzmq
 ```
 
 ### On RunPod
 ```bash
-# Ensure lerobot environment is activated
+# Activate conda environment
+conda activate lerobot
+
 # All dependencies should be installed via lerobot installation
 ```
 
@@ -43,8 +48,11 @@ The client must start first because it binds to ports and waits for the host.
 # On RunPod terminal
 cd /workspace/lerobot-xlerobot-integration
 
+# Activate conda environment
+conda activate lerobot
+
 # Start latency test client
-python test_remote_inference_latency.py \
+python -m lerobot.scripts.test_remote_inference_latency \
     --robot.type=grievous_client \
     --robot.reverse_connection=true \
     --robot.port_zmq_cmd=5555 \
@@ -67,8 +75,11 @@ Once the client is waiting, start the mock host:
 # On laptop terminal
 cd ~/Code/lerobot-xlerobot-integration
 
+# Activate conda environment
+conda activate lerobot
+
 # Start mock host (replace with your RunPod IP)
-python src/lerobot/robots/grievous/grievous_mock_inference_host.py \
+python -m lerobot.robots.grievous.grievous_mock_inference_host \
     --remote-ip 23.45.67.89 \
     --port-cmd 5555 \
     --port-obs 5556 \
@@ -122,7 +133,7 @@ Sequence Gaps: []
 ### Mock Host Options
 
 ```bash
-python src/lerobot/robots/grievous/grievous_mock_inference_host.py --help
+python -m lerobot.robots.grievous.grievous_mock_inference_host --help
 
 Options:
   --remote-ip IP       RunPod IP address (required)
@@ -135,7 +146,7 @@ Options:
 ### Client Options
 
 ```bash
-python test_remote_inference_latency.py --help
+python -m lerobot.scripts.test_remote_inference_latency --help
 
 Options:
   --robot.type TYPE                 Robot type (use: grievous_client)
@@ -249,11 +260,22 @@ Difference between round-trip and inference: `round_trip - inference`
 To compare 4090 vs 5090:
 
 ```bash
+# Activate environment
+conda activate lerobot
+
 # Test on 4090 RunPod instance
-python test_remote_inference_latency.py --policy.path=Grievous-Robot/smolvla_finetuned_5k --duration=60
+python -m lerobot.scripts.test_remote_inference_latency \
+    --robot.type=grievous_client \
+    --robot.reverse_connection=true \
+    --policy.path=Grievous-Robot/smolvla_finetuned_5k \
+    --duration=60
 
 # Test on 5090 RunPod instance  
-python test_remote_inference_latency.py --policy.path=Grievous-Robot/smolvla_finetuned_5k --duration=60
+python -m lerobot.scripts.test_remote_inference_latency \
+    --robot.type=grievous_client \
+    --robot.reverse_connection=true \
+    --policy.path=Grievous-Robot/smolvla_finetuned_5k \
+    --duration=60
 
 # Compare inference time mean/median
 ```

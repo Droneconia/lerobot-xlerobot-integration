@@ -158,6 +158,9 @@ python -m lerobot.robots.grievous.grievous_inference_host \
 ```bash
 cd /workspace/lerobot-xlerobot-integration
 
+# Activate conda environment:
+conda activate lerobot
+
 # Verify GPU is available:
 nvidia-smi
 
@@ -165,7 +168,7 @@ nvidia-smi
 export POLICY_PATH="Grievous-Robot/smolvla_finetuned_5k"
 
 # Start latency test client (binds to INTERNAL ports):
-python test_remote_inference_latency.py \
+python -m lerobot.scripts.test_remote_inference_latency \
     --robot.type=grievous_client \
     --robot.reverse_connection=true \
     --robot.port_zmq_cmd=5555 \
@@ -186,6 +189,9 @@ INFO - Waiting for observations from host...
 ```bash
 cd ~/Code/lerobot-xlerobot-integration
 
+# Activate conda environment:
+conda activate lerobot
+
 # Get Runpod external ports from dashboard "Direct TCP ports":
 # Example: 149.36.1.232:31847 -> :5555 (commands)
 #          149.36.1.232:31848 -> :5556 (observations)
@@ -195,7 +201,7 @@ export RUNPOD_CMD_PORT="31847"       # External port for commands (maps to 5555)
 export RUNPOD_OBS_PORT="31848"       # External port for observations (maps to 5556)
 
 # Start mock host (connects to EXTERNAL ports):
-python3 src/lerobot/robots/grievous/grievous_mock_inference_host.py \
+python -m lerobot.robots.grievous.grievous_mock_inference_host \
     --remote-ip ${RUNPOD_IP} \
     --port-cmd ${RUNPOD_CMD_PORT} \
     --port-obs ${RUNPOD_OBS_PORT} \
@@ -283,17 +289,20 @@ hostname -I
 
 ### Latency Test Tips:
 ```bash
-# Check if zmq is installed (needed for latency test on laptop):
-python3 -c "import zmq; print('ZMQ installed')"
+# Activate conda environment first:
+conda activate lerobot
 
-# If not installed:
+# Check if zmq is installed (needed for latency test):
+python -c "import zmq; print('ZMQ installed')"
+
+# If not installed (should be in lerobot environment):
 pip install pyzmq opencv-python numpy
 
 # Test mock host help:
-python3 src/lerobot/robots/grievous/grievous_mock_inference_host.py --help
+python -m lerobot.robots.grievous.grievous_mock_inference_host --help
 
 # Test client help:
-python test_remote_inference_latency.py --help
+python -m lerobot.scripts.test_remote_inference_latency --help
 ```
 
 ---
