@@ -84,7 +84,9 @@ RUN if [ "$UNBOUND_DEPS" = "true" ]; then \
     echo "Dependencies unbound:" && cat pyproject.toml; \
     fi
 
-RUN uv pip install --no-cache ".[all]"
+# Install SmolVLA dependencies (more targeted, avoids some dependency conflicts)
+# Using smolvla instead of all to avoid egl-probe package name mismatch issue
+RUN uv pip install --no-cache ".[smolvla]"
 
 # Copy entrypoint script for auto-authentication
 COPY --chown=user_lerobot:user_lerobot docker/entrypoint.sh /lerobot/entrypoint.sh
