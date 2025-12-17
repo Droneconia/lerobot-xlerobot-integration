@@ -35,12 +35,13 @@ ENV DEBIAN_FRONTEND=noninteractive \
     TEST_TYPE=single_gpu \
     DEVICE=cuda
 
-# Install Python, system dependencies, and uv (as root)
+# Install Python, system dependencies, uv, and SSH server (as root)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     software-properties-common build-essential git curl \
     libglib2.0-0 libgl1-mesa-glx libegl1-mesa ffmpeg \
     libusb-1.0-0-dev speech-dispatcher libgeos-dev portaudio19-dev \
     cmake pkg-config ninja-build \
+    openssh-server sudo \
     && add-apt-repository -y ppa:deadsnakes/ppa \
     && apt-get update \
     && apt-get install -y --no-install-recommends \
@@ -51,6 +52,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && mv /root/.local/bin/uv /usr/local/bin/uv \
     && useradd --create-home --shell /bin/bash user_lerobot \
     && usermod -aG sudo user_lerobot \
+    && echo "user_lerobot ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers \
+    && mkdir -p /run/sshd \
+    && sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin yes/' /etc/ssh/sshd_config \
+    && sed -i 's/#PasswordAuthentication yes/PasswordAuthentication no/' /etc/ssh/sshd_config \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Create application directory and set permissions
@@ -97,5 +102,7 @@ RUN chmod +x /lerobot/entrypoint.sh
 COPY --chown=user_lerobot:user_lerobot . .
 
 # Set entrypoint and default command
+# Use 'sleep infinity' to keep container running (allows SSH/web terminal access)
+# Container stays alive indefinitely until explicitly stopped
 ENTRYPOINT ["/lerobot/entrypoint.sh"]
-CMD ["/bin/bash"]
+CMD ["sleep", "infinity"]
