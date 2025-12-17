@@ -178,3 +178,5 @@ outputs/
 *.xml
 *.part
 .cursor/
+
+lerobot-xlerobot-integration.code-workspace

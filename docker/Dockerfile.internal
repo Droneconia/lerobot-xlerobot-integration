@@ -24,7 +24,8 @@ ARG OS_VERSION=22.04
 FROM nvidia/cuda:${CUDA_VERSION}-base-ubuntu${OS_VERSION}
 
 # Define Python version argument
-ARG PYTHON_VERSION=3.10
+# NOTE: Using Python 3.11 to match system PyTorch and avoid C extension compatibility issues
+ARG PYTHON_VERSION=3.11
 
 # Configure environment variables
 ENV DEBIAN_FRONTEND=noninteractive \
@@ -85,9 +86,14 @@ RUN if [ "$UNBOUND_DEPS" = "true" ]; then \
 
 RUN uv pip install --no-cache ".[all]"
 
+# Copy entrypoint script for auto-authentication
+COPY --chown=user_lerobot:user_lerobot docker/entrypoint.sh /lerobot/entrypoint.sh
+RUN chmod +x /lerobot/entrypoint.sh
+
 # Copy the rest of the application source code
 # Make sure to have the git-LFS files for testing
 COPY --chown=user_lerobot:user_lerobot . .
 
-# Set the default command
+# Set entrypoint and default command
+ENTRYPOINT ["/lerobot/entrypoint.sh"]
 CMD ["/bin/bash"]
