@@ -45,9 +45,15 @@ from lerobot.processor import (
     RobotProcessorPipeline,
     make_default_processors,
 )
-from lerobot.robots import RobotConfig, make_robot_from_config
+from lerobot.robots import (  # noqa: F401
+    Robot,
+    RobotConfig,
+    grievous,  # Import grievous module for registration
+    make_robot_from_config,
+)
 from lerobot.utils.constants import ACTION, OBS_STR
 from lerobot.utils.control_utils import predict_action
+from lerobot.utils.import_utils import register_third_party_devices
 from lerobot.utils.utils import get_safe_torch_device, init_logging
 
 logger = logging.getLogger(__name__)
@@ -311,4 +317,5 @@ def main(cfg: LatencyTestConfig):
 
 
 if __name__ == "__main__":
+    register_third_party_devices()
     main()
