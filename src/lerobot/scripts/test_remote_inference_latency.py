@@ -123,13 +123,14 @@ def run_latency_test(cfg: LatencyTestConfig) -> None:
     # Create temporary in-memory dataset for feature information
     logger.info("Creating temporary dataset for policy...")
     # We need a minimal dataset structure just for the policy to understand features
-    # We'll create a mock dataset with proper features but no actual data
-    dataset_meta = {
-        "robot_type": robot.name,
-        "fps": 30,
-        "features": dataset_features,
-        "stats": {},  # Empty stats - policy will handle missing stats gracefully
-    }
+    # Create a simple namespace object to hold the metadata
+    from types import SimpleNamespace
+    dataset_meta = SimpleNamespace(
+        robot_type=robot.name,
+        fps=30,
+        features=dataset_features,
+        stats={},  # Empty stats - policy will handle missing stats gracefully
+    )
 
     # Load policy
     logger.info(f"Loading policy from {cfg.policy.pretrained_path}...")
