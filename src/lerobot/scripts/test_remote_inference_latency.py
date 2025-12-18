@@ -120,19 +120,18 @@ def run_latency_test(cfg: LatencyTestConfig) -> None:
         ),
     )
     
-    # Rename camera features to match policy expectations
-    # Robot has: left_wrist, right_wrist, head
+    # Add camera features manually (they're not in robot.observation_features)
+    # Robot cameras: left_wrist, right_wrist, head
     # Policy expects: camera1, camera2, camera3
-    camera_rename_map = {
-        "observation.images.left_wrist": "observation.images.camera1",
-        "observation.images.right_wrist": "observation.images.camera2",
-        "observation.images.head": "observation.images.camera3",
-    }
+    from lerobot.datasets.pipeline_features import VideoFrame
     
-    for old_name, new_name in camera_rename_map.items():
-        if old_name in dataset_features:
-            dataset_features[new_name] = dataset_features.pop(old_name)
-            logger.info(f"Renamed feature: {old_name} -> {new_name}")
+    # Add camera features to dataset_features
+    dataset_features["observation.images.camera1"] = VideoFrame(height=480, width=640)
+    dataset_features["observation.images.camera2"] = VideoFrame(height=480, width=640)
+    dataset_features["observation.images.camera3"] = VideoFrame(height=480, width=640)
+    
+    logger.info(f"Added camera features to dataset_features")
+    logger.info(f"Updated dataset features keys: {list(dataset_features.keys())}")
 
     # Create temporary in-memory dataset for feature information
     logger.info("Creating temporary dataset for policy...")
