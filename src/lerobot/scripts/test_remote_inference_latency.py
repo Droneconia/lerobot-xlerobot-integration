@@ -125,10 +125,10 @@ def run_latency_test(cfg: LatencyTestConfig) -> None:
     # Policy expects: camera1, camera2, camera3
     from lerobot.datasets.video_utils import VideoFrame
     
-    # Add camera features to dataset_features
-    dataset_features["observation.images.camera1"] = VideoFrame(height=480, width=640)
-    dataset_features["observation.images.camera2"] = VideoFrame(height=480, width=640)
-    dataset_features["observation.images.camera3"] = VideoFrame(height=480, width=640)
+    # Add camera features to dataset_features - VideoFrame takes no arguments
+    dataset_features["observation.images.camera1"] = VideoFrame()
+    dataset_features["observation.images.camera2"] = VideoFrame()
+    dataset_features["observation.images.camera3"] = VideoFrame()
     
     logger.info(f"Added camera features to dataset_features")
     logger.info(f"Updated dataset features keys: {list(dataset_features.keys())}")
