@@ -314,11 +314,13 @@ def run_latency_test(cfg: LatencyTestConfig) -> None:
             # Log first inference
             if iteration == 0:
                 logger.info(f"First inference complete: {inference_time_ms:.1f}ms")
-                logger.info(f"Action keys: {list(action_values.keys())}")
+                logger.info(f"Action tensor shape: {action_values.shape}")
 
-            # 5. Convert action to robot action format
+            # 5. Convert action to robot action format (tensor -> dict)
             try:
                 robot_action = make_robot_action(action_values, dataset_features)
+                if iteration == 0:
+                    logger.info(f"Robot action keys: {list(robot_action.keys())}")
             except Exception as e:
                 logger.error(f"Error making robot action: {e}")
                 time.sleep(0.01)
