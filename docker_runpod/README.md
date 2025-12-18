@@ -125,7 +125,7 @@ cd Grievous
 pip install -e ".[smolvla]"
 
 # Verify
-python -c "from lerobot.common.policies.smolvla.modeling_smolvla import SmolVLAPolicy; print('✓ Ready!')"
+python -c "from lerobot.policies.smolvla.modeling_smolvla import SmolVLAPolicy; print('✓ Ready!')"
 ```
 
 ### 6. Run Training

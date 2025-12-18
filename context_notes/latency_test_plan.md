@@ -1,4 +1,4 @@
-# Remote Inference Latency Testing Plan
+ # Remote Inference Latency Testing Plan
 
 ## Objective
 Measure round-trip latency for SmolVLA inference running on RunPod (4090/5090) communicating with a mock local robot. Test duration: 30 seconds to get reliable latency statistics.

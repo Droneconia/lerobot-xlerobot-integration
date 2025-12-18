@@ -37,6 +37,12 @@ echo "Activating conda environment: grievous"
 conda activate grievous
 echo "✓ Conda environment activated"
 
+# Export environment variables for pip/temp to use /workspace (network volume, not container disk)
+export TMPDIR=/workspace/tmp
+export PIP_TEMP_DIR=/workspace/tmp
+export PIP_CACHE_DIR=/workspace/.cache/pip
+echo "✓ Environment variables configured for /workspace usage"
+
 # Auto-authenticate HuggingFace if token provided
 if [ -n "$HF_TOKEN" ]; then
     echo "Authenticating with HuggingFace..."
@@ -79,10 +85,10 @@ echo "   git clone https://github.com/alexkoven/Grievous.git"
 echo ""
 echo "2. Install LeRobot from Grievous source:"
 echo "   cd /workspace/Grievous"
-echo "   pip install -e '.[smolvla]'"
+echo "   pip install --no-cache-dir -e '.[smolvla]'"
 echo ""
 echo "3. Verify installation:"
-echo "   python -c 'from lerobot.common.policies.smolvla.modeling_smolvla import SmolVLAPolicy; print(\"✓ SmolVLA ready!\")'"
+echo "   python -c 'from lerobot.policies.smolvla.modeling_smolvla import SmolVLAPolicy; print(\"✓ SmolVLA ready!\")'"
 echo ""
 echo "4. Start training:"
 echo "   cd /workspace/Grievous"
