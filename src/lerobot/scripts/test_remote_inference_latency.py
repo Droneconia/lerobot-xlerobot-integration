@@ -318,11 +318,38 @@ def run_latency_test(cfg: LatencyTestConfig) -> None:
 
             # 5. Convert action to robot action format (tensor -> dict)
             try:
+                # Check if action dimensions match robot expectations
+                action_tensor_dim = action_values.shape[1] if len(action_values.shape) > 1 else action_values.shape[0]
+                expected_dim = len(dataset_features[ACTION]["names"])
+                
+                if action_tensor_dim != expected_dim:
+                    # WORKAROUND: Policy trained on different robot (6 DoF) vs Grievous (17 DoF)
+                    # Pad with zeros for latency test purposes
+                    if iteration == 0:
+                        logger.warning(
+                            f"Action dimension mismatch: policy outputs {action_tensor_dim}, "
+                            f"robot expects {expected_dim}. Padding with zeros for latency test."
+                        )
+                    
+                    # Pad action tensor to match robot dimensions
+                    import torch
+                    if len(action_values.shape) == 1:
+                        padded_action = torch.zeros(expected_dim, device=action_values.device)
+                        padded_action[:action_tensor_dim] = action_values
+                    else:  # batch dimension present
+                        padded_action = torch.zeros(action_values.shape[0], expected_dim, device=action_values.device)
+                        padded_action[:, :action_tensor_dim] = action_values
+                    
+                    action_values = padded_action
+                
                 robot_action = make_robot_action(action_values, dataset_features)
                 if iteration == 0:
                     logger.info(f"Robot action keys: {list(robot_action.keys())}")
+                    logger.info(f"Robot action sample: {dict(list(robot_action.items())[:3])}")
             except Exception as e:
                 logger.error(f"Error making robot action: {e}")
+                import traceback
+                traceback.print_exc()
                 time.sleep(0.01)
                 continue
 
