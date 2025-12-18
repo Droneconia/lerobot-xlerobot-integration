@@ -111,27 +111,30 @@ def run_latency_test(cfg: LatencyTestConfig) -> None:
         aggregate_pipeline_dataset_features(
             pipeline=teleop_action_processor,
             initial_features=create_initial_features(action=robot.action_features),
-            use_videos=False,  # No video encoding for latency test
+            use_videos=True,  # IMPORTANT: must be True to include image features
         ),
         aggregate_pipeline_dataset_features(
             pipeline=robot_observation_processor,
             initial_features=create_initial_features(observation=robot.observation_features),
-            use_videos=False,
+            use_videos=True,  # IMPORTANT: must be True to include image features
         ),
     )
     
-    # Add camera features manually (they're not in robot.observation_features)
-    # Robot cameras: left_wrist, right_wrist, head
+    # Rename camera features to match policy expectations
+    # Robot has: left_wrist, right_wrist, head
     # Policy expects: camera1, camera2, camera3
-    from lerobot.datasets.video_utils import VideoFrame
+    camera_rename_map = {
+        "observation.images.left_wrist": "observation.images.camera1",
+        "observation.images.right_wrist": "observation.images.camera2",
+        "observation.images.head": "observation.images.camera3",
+    }
     
-    # Add camera features to dataset_features - VideoFrame takes no arguments
-    dataset_features["observation.images.camera1"] = VideoFrame()
-    dataset_features["observation.images.camera2"] = VideoFrame()
-    dataset_features["observation.images.camera3"] = VideoFrame()
+    for old_name, new_name in camera_rename_map.items():
+        if old_name in dataset_features:
+            dataset_features[new_name] = dataset_features.pop(old_name)
+            logger.info(f"Renamed feature: {old_name} -> {new_name}")
     
-    logger.info(f"Added camera features to dataset_features")
-    logger.info(f"Updated dataset features keys: {list(dataset_features.keys())}")
+    logger.info(f"Final dataset features keys: {list(dataset_features.keys())}")
 
     # Create temporary in-memory dataset for feature information
     logger.info("Creating temporary dataset for policy...")
