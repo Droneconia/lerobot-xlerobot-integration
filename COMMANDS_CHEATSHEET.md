@@ -158,32 +158,32 @@ python -m lerobot.robots.grievous.grievous_inference_host \
 ```bash
 cd /workspace/lerobot-xlerobot-integration
 
+# Pull latest changes (IMPORTANT - camera key fix):
+git pull origin dummy_inference_laptop
+
 # Activate conda environment:
 conda activate lerobot
 
 # Verify GPU is available:
 nvidia-smi
 
-# Set policy checkpoint:
-export POLICY_PATH="Grievous-Robot/smolvla_finetuned_5k"
 
-# Start latency test client (binds to INTERNAL ports):
+# Start latency test client (binds to INTERNAL ports and waits 120s for host):
 python -m lerobot.scripts.test_remote_inference_latency \
     --robot.type=grievous_client \
     --robot.reverse_connection=true \
     --robot.port_zmq_cmd=5555 \
     --robot.port_zmq_observations=5556 \
-    --policy.path=${POLICY_PATH} \
+    --robot.connect_timeout_s=120 \
+    --policy.path=lerobot/smolvla_base \
     --duration=30
 ```
 
-Expected output:
-```
-INFO - Loading policy from Grievous-Robot/smolvla_finetuned_5k...
-INFO - Initializing GrievousClient...
-INFO - Binding to ports 5555/5556...
-INFO - Waiting for observations from host...
-```
+**Expected output:**
+- Policy will load (~10 seconds)
+- "Connecting to robot client..."
+- "Waiting for observations from host..."
+- Then waits for your laptop to connect (up to 120 seconds)
 
 ### STEP 2 - On Laptop (connects to Runpod):
 ```bash
@@ -193,12 +193,12 @@ cd ~/Code/lerobot-xlerobot-integration
 conda activate lerobot
 
 # Get Runpod external ports from dashboard "Direct TCP ports":
-# Example: 149.36.1.232:31847 -> :5555 (commands)
-#          149.36.1.232:31848 -> :5556 (observations)
+# Example: 213.173.102.85:10305 -> :5555 (commands)
+#          213.173.102.85:10306 -> :5556 (observations)
 
-export RUNPOD_IP="149.36.1.232"      # From Runpod dashboard
-export RUNPOD_CMD_PORT="31847"       # External port for commands (maps to 5555)
-export RUNPOD_OBS_PORT="31848"       # External port for observations (maps to 5556)
+export RUNPOD_IP="213.173.102.85"      # From Runpod dashboard
+export RUNPOD_CMD_PORT="10305"         # External port for commands (maps to 5555)
+export RUNPOD_OBS_PORT="10306"         # External port for observations (maps to 5556)
 
 # Start mock host (connects to EXTERNAL ports):
 python -m lerobot.robots.grievous.grievous_mock_inference_host \
@@ -208,11 +208,11 @@ python -m lerobot.robots.grievous.grievous_mock_inference_host \
     --duration 30
 ```
 
-Expected output:
+**Expected output:**
 ```
-Connecting to remote policy at 149.36.1.232...
+Connecting to remote policy at 213.173.102.85...
 Test duration: 30 seconds
-Expected samples: ~150
+Expected samples: ~1500
 
 [10 samples] Round-trip: 185.2ms | Inference: 156.3ms | Network: 28.9ms
 [20 samples] Round-trip: 182.7ms | Inference: 155.1ms | Network: 27.6ms
@@ -227,8 +227,11 @@ Round-trip Latency:
   Median: 182.0 ms
   P95:    220.5 ms
   P99:    245.8 ms
-  ...
+  Min:    145.2 ms
+  Max:    312.7 ms
+============================================================
 ```
+
 
 ### Interpreting Results:
 - **Round-trip < 200ms**: Excellent - suitable for responsive control
@@ -239,9 +242,23 @@ Round-trip Latency:
 
 ### Important Notes:
 - **Port mapping**: RunPod maps internal ports (5555, 5556) to external ports (check dashboard)
-- **Order matters**: Start RunPod client FIRST, then laptop mock host SECOND
+- **Order matters**: Start RunPod client FIRST, then laptop mock host SECOND (within 120 seconds)
 - **First inference**: May be slower (~500-1000ms) due to model warmup - this is normal
 - **No physical robot needed**: Uses dummy observations (random state + camera frames)
+- **Git pull required**: Always `git pull` on RunPod to get latest fixes (especially camera key mapping)
+
+### Troubleshooting:
+**Issue: `All image features are missing from the batch`**
+- **Fix**: Pull latest changes on RunPod: `git pull origin dummy_inference_laptop`
+- **Cause**: Camera keys need to be renamed from `left_wrist`/`right_wrist`/`head` to `camera1`/`camera2`/`camera3`
+
+**Issue: `No module named 'zmq'`**
+- **Fix**: Install pyzmq: `pip install pyzmq`
+
+**Issue: Connection timeout / "Timeout waiting for host"**
+- **Fix**: Check RunPod IP and ports are correct from dashboard
+- **Fix**: Increase timeout: `--robot.connect_timeout_s=120` (default is 5 seconds)
+- **Fix**: Start RunPod first, then laptop within timeout window
 
 ---
 

@@ -223,6 +223,19 @@ def run_latency_test(cfg: LatencyTestConfig) -> None:
             # Remove observation.state if present (will be reconstructed)
             obs_dict.pop("observation.state", None)
             
+            # Rename camera keys to match policy expectations
+            # Robot sends: left_wrist, right_wrist, head
+            # Policy expects: camera1, camera2, camera3
+            camera_rename_map = {
+                "left_wrist": "camera1",
+                "right_wrist": "camera2",
+                "head": "camera3",
+            }
+            
+            for old_name, new_name in camera_rename_map.items():
+                if old_name in obs_dict:
+                    obs_dict[new_name] = obs_dict.pop(old_name)
+            
             try:
                 observation_frame = build_dataset_frame(
                     dataset_features, obs_dict, prefix=OBS_STR
