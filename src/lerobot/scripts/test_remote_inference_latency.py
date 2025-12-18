@@ -237,6 +237,13 @@ def run_latency_test(cfg: LatencyTestConfig) -> None:
             # Remove observation.state if present (will be reconstructed)
             obs_dict.pop("observation.state", None)
             
+            # Debug: Log received observation keys
+            if iteration == 0:
+                logger.info(f"Received observation keys: {list(obs_dict.keys())}")
+                for key in ['left_wrist', 'right_wrist', 'head']:
+                    if key in obs_dict:
+                        logger.info(f"  {key}: type={type(obs_dict[key])}, shape={obs_dict[key].shape if hasattr(obs_dict[key], 'shape') else 'N/A'}")
+            
             # Rename camera keys to match policy expectations
             # Robot sends: left_wrist, right_wrist, head
             # Policy expects: camera1, camera2, camera3
@@ -250,19 +257,38 @@ def run_latency_test(cfg: LatencyTestConfig) -> None:
                 if old_name in obs_dict:
                     obs_dict[new_name] = obs_dict.pop(old_name)
             
+            # Debug: Log after renaming
+            if iteration == 0:
+                logger.info(f"After renaming, observation keys: {list(obs_dict.keys())}")
+                logger.info(f"Dataset features keys: {list(dataset_features.keys())}")
+            
             try:
                 observation_frame = build_dataset_frame(
                     dataset_features, obs_dict, prefix=OBS_STR
                 )
+                
+                # Debug: Log observation frame
+                if iteration == 0:
+                    logger.info(f"Observation frame keys: {list(observation_frame.keys())}")
+                    for key in observation_frame.keys():
+                        if 'camera' in key or 'image' in key:
+                            val = observation_frame[key]
+                            logger.info(f"  {key}: type={type(val)}, shape={val.shape if hasattr(val, 'shape') else 'N/A'}")
+                
             except Exception as e:
                 logger.error(f"Error building observation frame: {e}")
                 logger.error(f"Observation keys: {obs_dict.keys()}")
+                logger.error(f"Dataset features: {dataset_features.keys()}")
                 time.sleep(0.01)
                 continue
 
             # 4. Run inference with timing
             inference_start = time.perf_counter()
             try:
+                # Debug: Check observation_frame before preprocessing
+                if iteration == 0:
+                    logger.info(f"Before predict_action, observation_frame keys: {list(observation_frame.keys())}")
+                
                 action_values = predict_action(
                     observation=observation_frame,
                     policy=policy,
@@ -275,6 +301,8 @@ def run_latency_test(cfg: LatencyTestConfig) -> None:
                 )
             except Exception as e:
                 logger.error(f"Error during inference: {e}")
+                if iteration < 3:  # Only log details for first few errors
+                    logger.error(f"observation_frame keys: {list(observation_frame.keys())}")
                 time.sleep(0.01)
                 continue
 
@@ -306,6 +334,8 @@ def run_latency_test(cfg: LatencyTestConfig) -> None:
             # 7. Send action back to host
             try:
                 robot.send_action(action_dict)
+                if iteration == 0:
+                    logger.info(f"First action sent successfully with seq_num: {seq_num}")
             except Exception as e:
                 logger.error(f"Error sending action: {e}")
                 time.sleep(0.01)
@@ -321,6 +351,8 @@ def run_latency_test(cfg: LatencyTestConfig) -> None:
                     f"Last inference: {inference_time_ms:.1f}ms | "
                     f"Elapsed: {elapsed_total:.1f}s"
                 )
+            elif iteration == 0:
+                logger.info(f"First iteration complete: {inference_time_ms:.1f}ms")
 
             iteration += 1
 
