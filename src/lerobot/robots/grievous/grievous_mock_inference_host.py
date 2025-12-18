@@ -92,6 +92,11 @@ class MockGrievousInferenceHost:
         self.network_overheads: List[float] = []
         self.sequence_gaps: List[int] = []
         self.last_received_seq = -1
+        
+        # Detailed timing breakdowns
+        self.timing_image_encode: List[float] = []
+        self.timing_json_serialize: List[float] = []
+        self.timing_json_deserialize: List[float] = []
 
         logger.info(
             f"MockGrievousInferenceHost initialized: freq={loop_freq_hz}Hz, duration={duration_s}s"
@@ -105,11 +110,11 @@ class MockGrievousInferenceHost:
         self.zmq_context.term()
         logger.info("MockGrievousInferenceHost disconnected")
 
-    def generate_dummy_observation(self) -> Dict:
+    def generate_dummy_observation(self) -> tuple[Dict, float]:
         """Generate synthetic observation with robot state and camera images.
         
         Returns:
-            Dictionary with robot state (17 floats) and 3 base64-encoded camera images
+            Tuple of (observation dict, image_encode_time_ms)
         """
         observation = {}
 
@@ -141,6 +146,7 @@ class MockGrievousInferenceHost:
 
         # Generate dummy camera frames (640x480 colored noise)
         # This simulates the real camera image size and compression
+        encode_start = time.perf_counter()
         for cam_name in ["left_wrist", "right_wrist", "head"]:
             # Create random noise image
             frame = np.random.randint(0, 255, (480, 640, 3), dtype=np.uint8)
@@ -152,8 +158,10 @@ class MockGrievousInferenceHost:
             else:
                 logger.warning(f"Failed to encode camera {cam_name}, using empty string")
                 observation[cam_name] = ""
+        
+        encode_time_ms = (time.perf_counter() - encode_start) * 1000
 
-        return observation
+        return observation, encode_time_ms
 
     def calculate_statistics(self) -> Dict:
         """Calculate statistical summary of latency measurements.
@@ -196,13 +204,13 @@ class MockGrievousInferenceHost:
 
     def print_final_statistics(self) -> None:
         """Print comprehensive statistics summary at end of test."""
-        print("\n" + "=" * 70)
+        print("\n" + "=" * 85)
         print(f"RESULTS: Collected {len(self.latencies)} valid samples")
-        print("=" * 70)
+        print("=" * 85)
 
         if not self.latencies:
             print("\nNo samples collected. Test failed.")
-            print("=" * 70 + "\n")
+            print("=" * 85 + "\n")
             return
 
         stats = self.calculate_statistics()
@@ -224,9 +232,24 @@ class MockGrievousInferenceHost:
             print(f"  Median:    {inf['median']:7.1f} ms")
             print(f"  P95:       {inf['p95']:7.1f} ms")
             print(f"  P99:       {inf['p99']:7.1f} ms")
-            print("\n  Note: Inference spikes may indicate model compilation or caching.")
 
-        print("\n" + "=" * 70 + "\n")
+        # Timing breakdown
+        if self.timing_image_encode:
+            print("\n🔍 TIMING BREAKDOWN (averages, laptop side):")
+            print(f"  Image Encoding (3 cameras):  {np.mean(self.timing_image_encode):7.1f} ms")
+            print(f"  JSON Serialization:           {np.mean(self.timing_json_serialize):7.1f} ms")
+            print(f"  JSON Deserialization:         {np.mean(self.timing_json_deserialize):7.1f} ms")
+            
+            overhead = (
+                np.mean(self.timing_image_encode) + 
+                np.mean(self.timing_json_serialize) + 
+                np.mean(self.timing_json_deserialize)
+            )
+            print(f"  → Total measured overhead:    {overhead:7.1f} ms")
+            print(f"  → Network + unmeasured:       {np.mean(self.latencies) - overhead - np.median(self.inference_times):7.1f} ms (estimated)")
+
+        print("\n  Note: First inference (~400ms) is model warmup/compilation.")
+        print("=" * 85 + "\n")
 
     def run(self) -> None:
         """Main control loop: synchronous request-response for latency testing.
@@ -250,8 +273,8 @@ class MockGrievousInferenceHost:
             while (time.perf_counter() - start_time) < self.duration_s:
                 iteration_start = time.perf_counter()
                 
-                # 1. Generate and send observation
-                observation = self.generate_dummy_observation()
+                # 1. Generate observation (with timing)
+                observation, encode_time_ms = self.generate_dummy_observation()
                 seq_num = self.observation_counter
                 self.observation_counter += 1
                 
@@ -259,7 +282,12 @@ class MockGrievousInferenceHost:
                 observation["timestamp_sent"] = iteration_start
                 
                 try:
+                    # 2. JSON serialization (with timing)
+                    json_start = time.perf_counter()
                     obs_json = json.dumps(observation)
+                    json_serialize_ms = (time.perf_counter() - json_start) * 1000
+                    
+                    # 3. Send observation
                     self.zmq_observation_socket.send_string(obs_json)
                     
                     if sample_count == 0:
@@ -269,7 +297,7 @@ class MockGrievousInferenceHost:
                     logger.error(f"Failed to send observation: {e}")
                     continue
                 
-                # 2. WAIT for action response (blocking, with timeout)
+                # 4. WAIT for action response (blocking, with timeout)
                 poller = zmq.Poller()
                 poller.register(self.zmq_cmd_socket, zmq.POLLIN)
                 
@@ -279,44 +307,50 @@ class MockGrievousInferenceHost:
                     if self.zmq_cmd_socket in socks:
                         action_msg = self.zmq_cmd_socket.recv_string()
                         timestamp_received = time.perf_counter()
-                        action = json.loads(action_msg)
                         
-                        # 3. Extract timing metadata from action
+                        # 5. JSON deserialization (with timing)
+                        json_deser_start = time.perf_counter()
+                        action = json.loads(action_msg)
+                        json_deserialize_ms = (time.perf_counter() - json_deser_start) * 1000
+                        
+                        # 6. Extract timing metadata from action
                         action_seq = action.get("seq_num", -1)
                         inference_start = action.get("inference_start", 0)
                         inference_end = action.get("inference_end", 0)
                         
-                        # 4. Verify this is the action for our observation
+                        # 7. Verify this is the action for our observation
                         if action_seq != seq_num:
                             logger.warning(
                                 f"Sequence mismatch: sent {seq_num}, received {action_seq}"
                             )
                             continue
                         
-                        # 5. Calculate latencies (all times are from host's clock except inference)
+                        # 8. Calculate latencies
                         round_trip_ms = (timestamp_received - iteration_start) * 1000
                         inference_ms = (inference_end - inference_start) * 1000
-                        
-                        # Note: We can't accurately separate network vs inference time
-                        # since inference timestamps are from a different machine's clock
                         
                         # Store statistics
                         self.latencies.append(round_trip_ms)
                         self.inference_times.append(inference_ms)
+                        self.timing_image_encode.append(encode_time_ms)
+                        self.timing_json_serialize.append(json_serialize_ms)
+                        self.timing_json_deserialize.append(json_deserialize_ms)
                         sample_count += 1
                         
-                        # Print progress
+                        # Print progress (ALL samples)
                         if sample_count == 1:
                             print(f"✓ First action received (round-trip: {round_trip_ms:.1f}ms)\n")
-                            print(f"{'Sample':<8} {'Round-Trip (ms)':<18} {'Inference (ms)':<18} {'Test Time (s)':<15}")
-                            print(f"{'-'*70}")
+                            print(f"{'#':<5} {'Round-Trip':<12} {'Inference':<12} {'Img Encode':<12} {'JSON Ser':<12} {'JSON Deser':<12} {'Test Time':<12}")
+                            print(f"{'-'*85}")
                         
-                        if sample_count % 10 == 0 or sample_count <= 3:
-                            elapsed_s = time.perf_counter() - start_time
-                            print(
-                                f"{sample_count:<8} {round_trip_ms:<18.1f} "
-                                f"{inference_ms:<18.1f} {elapsed_s:<15.1f}"
-                            )
+                        # Print EVERY sample
+                        elapsed_s = time.perf_counter() - start_time
+                        print(
+                            f"{sample_count:<5} {round_trip_ms:<12.1f} "
+                            f"{inference_ms:<12.1f} {encode_time_ms:<12.1f} "
+                            f"{json_serialize_ms:<12.1f} {json_deserialize_ms:<12.1f} "
+                            f"{elapsed_s:<12.1f}"
+                        )
                     
                     else:
                         # Timeout waiting for action
