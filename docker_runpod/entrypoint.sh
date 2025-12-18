@@ -42,6 +42,11 @@ if [ -n "$HF_TOKEN" ]; then
     echo "Authenticating with HuggingFace..."
     huggingface-cli login --token "$HF_TOKEN" --add-to-git-credential 2>/dev/null || \
     hf auth login --token "$HF_TOKEN" --add-to-git-credential
+    
+    # Also copy token to ~/.cache for CLI compatibility
+    mkdir -p ~/.cache/huggingface
+    cp /workspace/.cache/huggingface/token ~/.cache/huggingface/token 2>/dev/null || true
+    
     echo "✓ HuggingFace authentication complete"
 else
     echo "⚠ HF_TOKEN not set - skipping HuggingFace authentication"
@@ -66,26 +71,27 @@ echo "Conda env: $CONDA_DEFAULT_ENV"
 echo "Working directory: $(pwd)"
 echo "=========================================="
 echo ""
-echo "📁 Workspace Setup:"
+echo "📁 Setup Instructions:"
 echo ""
-echo "Clone your repo to /workspace for persistent code:"
-echo "  cd /workspace"
-echo "  git clone https://github.com/yourusername/lerobot-xlerobot-integration.git"
-echo "  cd lerobot-xlerobot-integration"
-echo "  pip install -e '.[smolvla]'  # Install in editable mode"
+echo "1. Clone Grievous repo (first time only):"
+echo "   cd /workspace"
+echo "   git clone https://github.com/alexkoven/Grievous.git"
 echo ""
-echo "Or if repo already exists in network volume:"
-echo "  cd /workspace/lerobot-xlerobot-integration"
-echo "  git pull  # Update code"
-echo "  pip install -e '.[smolvla]'  # Reinstall dependencies if needed"
+echo "2. Install LeRobot from Grievous source:"
+echo "   cd /workspace/Grievous"
+echo "   pip install -e '.[smolvla]'"
 echo ""
-echo "🚀 Run training:"
-echo "  ./train_grievous.sh"
+echo "3. Verify installation:"
+echo "   python -c 'from lerobot.common.policies.smolvla.modeling_smolvla import SmolVLAPolicy; print(\"✓ SmolVLA ready!\")'"
+echo ""
+echo "4. Start training:"
+echo "   cd /workspace/Grievous"
+echo "   ./train_grievous.sh"
 echo ""
 echo "📡 SSH Access:"
-echo "  Direct SSH (fast, no gateway lag):"
-echo "    ssh root@<POD-IP> -p <MAPPED-PORT-22>"
+echo "   Direct: ssh root@<POD-IP> -p <MAPPED-PORT-22>"
 echo ""
+echo "📝 Note: All dependencies pre-installed, only clone + install needed!"
 echo "=========================================="
 
 # Execute the main command (defaults to "sleep infinity")

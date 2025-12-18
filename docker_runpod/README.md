@@ -116,14 +116,28 @@ ssh root@<POD-IP> -p <MAPPED-PORT-22>
 
 ### 5. Setup Code in Pod
 ```bash
+# First time: Clone Grievous repo
 cd /workspace
-git clone https://github.com/yourusername/lerobot-xlerobot-integration.git
-cd lerobot-xlerobot-integration
+git clone https://github.com/alexkoven/Grievous.git
+cd Grievous
+
+# Install LeRobot from Grievous source (all dependencies pre-installed in image)
 pip install -e ".[smolvla]"
+
+# Verify
+python -c "from lerobot.common.policies.smolvla.modeling_smolvla import SmolVLAPolicy; print('✓ Ready!')"
 ```
 
 ### 6. Run Training
 ```bash
+cd /workspace/Grievous
+./train_grievous.sh
+```
+
+**Note:** On subsequent pod starts (same network volume), just:
+```bash
+cd /workspace/Grievous
+git pull  # Update code if needed
 ./train_grievous.sh
 ```
 

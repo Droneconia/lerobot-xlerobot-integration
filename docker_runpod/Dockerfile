@@ -87,18 +87,34 @@ ENV CONDA_DEFAULT_ENV=grievous \
     CONDA_PREFIX=/opt/conda/envs/grievous
 
 # Copy pyproject.toml for dependency installation
-# We install packages now, but code will be in /workspace (persistent)
+# Install SmolVLA dependencies but NOT lerobot itself
+# User will clone Grievous repo to /workspace and install in editable mode
 COPY pyproject.toml README.md MANIFEST.in /tmp/lerobot-install/
-COPY src/ /tmp/lerobot-install/src/
 
-# Install PyTorch and LeRobot dependencies into conda environment
-# This installs PyTorch from scratch (self-contained, no system dependency)
+# Install PyTorch and SmolVLA dependencies (but not lerobot package itself)
 # Using PyTorch 2.4.x (tested and confirmed working)
 RUN source /opt/conda/etc/profile.d/conda.sh \
     && conda activate grievous \
     && cd /tmp/lerobot-install \
-    && uv pip install --system --no-cache "torch>=2.4.0,<2.5.0" "torchvision>=0.19.0,<0.20.0" \
-    && uv pip install --system --no-cache ".[smolvla]" \
+    && uv pip install --system --no-cache \
+        "torch>=2.4.0,<2.5.0" \
+        "torchvision>=0.19.0,<0.20.0" \
+    && uv pip install --system --no-cache \
+        "transformers>=4.50.0,<5.0.0" \
+        "accelerate>=0.36.0,<2.0.0" \
+        "diffusers>=0.31.0,<2.0.0" \
+        "datasets>=2.16.0,<5.0.0" \
+        "huggingface-hub>=0.28.0,<2.0.0" \
+        "safetensors>=0.4.1,<2.0.0" \
+        "wandb>=0.20.0,<0.22.0" \
+        "pillow>=10.2.0" \
+        "opencv-python>=4.9.0.80" \
+        "gymnasium>=1.0.0" \
+        "imageio[ffmpeg]>=2.34.0,<3.0.0" \
+        "numpy>=2.0.0,<3.0.0" \
+        "pyarrow>=17.0.0,<20.0.0" \
+        "pydantic>=2.7.0,<3.0.0" \
+        "torchcodec>=0.2.1,<0.6.0; sys_platform != 'win32' and (sys_platform != 'linux' or (platform_machine != 'aarch64' and platform_machine != 'arm64' and platform_machine != 'armv7l')) and (sys_platform != 'darwin' or platform_machine != 'x86_64')" \
     && rm -rf /tmp/lerobot-install \
     && conda clean -a -y
 
