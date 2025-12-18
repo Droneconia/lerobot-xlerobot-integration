@@ -205,8 +205,15 @@ python -m lerobot.robots.grievous.grievous_mock_inference_host \
     --remote-ip ${RUNPOD_IP} \
     --port-cmd ${RUNPOD_CMD_PORT} \
     --port-obs ${RUNPOD_OBS_PORT} \
-    --duration 30
+    --duration 30 \
+    --resolution 480x640  # Default: 480x640. Try 240x320 for 4x less data (faster test)
 ```
+
+**Resolution options:**
+- `--resolution 480x640`: Full resolution (~2.9 MB, 640ms with 36 Mbps upload)
+- `--resolution 240x320`: Quarter resolution (~0.7 MB, 160ms with 36 Mbps upload) ← **Recommended for testing**
+- `--resolution 120x160`: 1/16th resolution (~0.2 MB, 40ms with 36 Mbps upload)
+
 
 **Expected output:**
 ```

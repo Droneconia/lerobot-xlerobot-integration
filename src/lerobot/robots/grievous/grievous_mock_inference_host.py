@@ -52,6 +52,7 @@ class MockGrievousInferenceHost:
         port_obs: int = 5556,
         loop_freq_hz: int = 50,
         duration_s: int = 30,
+        resolution: str = "480x640",
     ):
         """Initialize mock host with ZMQ sockets.
         
@@ -61,12 +62,21 @@ class MockGrievousInferenceHost:
             port_obs: Port for sending observations to client
             loop_freq_hz: Control loop frequency (Hz)
             duration_s: Test duration in seconds
+            resolution: Camera resolution as "HEIGHTxWIDTH" (e.g., "240x320", "480x640")
         """
         self.remote_ip = remote_ip
         self.port_cmd = port_cmd
         self.port_obs = port_obs
         self.loop_freq_hz = loop_freq_hz
         self.duration_s = duration_s
+        
+        # Parse resolution
+        try:
+            h, w = resolution.split("x")
+            self.img_height = int(h)
+            self.img_width = int(w)
+        except ValueError:
+            raise ValueError(f"Invalid resolution format: {resolution}. Use HEIGHTxWIDTH (e.g., 240x320)")
 
         # ZMQ context and sockets
         self.zmq_context = zmq.Context()
@@ -147,12 +157,12 @@ class MockGrievousInferenceHost:
         observation["y.vel"] = 0.0
         observation["theta.vel"] = 0.0
 
-        # Generate dummy camera frames (640x480 colored noise)
+        # Generate dummy camera frames with configured resolution
         # This simulates the real camera image size and compression
         encode_start = time.perf_counter()
         for cam_name in ["left_wrist", "right_wrist", "head"]:
-            # Create random noise image
-            frame = np.random.randint(0, 255, (480, 640, 3), dtype=np.uint8)
+            # Create random noise image with configured resolution
+            frame = np.random.randint(0, 255, (self.img_height, self.img_width, 3), dtype=np.uint8)
             
             # Encode to JPEG with quality 90 (same as real host)
             ret, buffer = cv2.imencode(".jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), 90])
@@ -275,6 +285,7 @@ class MockGrievousInferenceHost:
         print(f"LATENCY TEST: Synchronous Request-Response Mode")
         print(f"{'='*70}")
         print(f"Remote policy: {self.remote_ip}")
+        print(f"Camera resolution: {self.img_height}x{self.img_width} (3 cameras)")
         print(f"Test duration: {self.duration_s} seconds")
         print(f"Timeout per request: 5 seconds")
         print(f"{'='*70}\n")
@@ -301,11 +312,15 @@ class MockGrievousInferenceHost:
                     obs_json = json.dumps(observation)
                     json_serialize_ms = (time.perf_counter() - json_start) * 1000
                     
+                    # Measure payload size
+                    payload_size_mb = len(obs_json) / (1024 * 1024)
+                    
                     # 3. Send observation
                     self.zmq_observation_socket.send_string(obs_json)
                     
                     if sample_count == 0:
                         print(f"✓ First observation sent (seq_num={seq_num})")
+                        print(f"  Payload size: {payload_size_mb:.2f} MB")
                     
                 except Exception as e:
                     logger.error(f"Failed to send observation: {e}")
@@ -421,6 +436,12 @@ def main():
     parser.add_argument(
         "--freq", type=int, default=50, help="Loop frequency in Hz (default: 50)"
     )
+    parser.add_argument(
+        "--resolution",
+        type=str,
+        default="480x640",
+        help="Camera resolution as HEIGHTxWIDTH (default: 480x640). Try 240x320 for 4x less data.",
+    )
     args = parser.parse_args()
 
     # Setup logging
@@ -430,6 +451,7 @@ def main():
 
     logger.info("Starting Mock Grievous Inference Host")
     logger.info(f"Connecting to remote policy at {args.remote_ip}")
+    logger.info(f"Camera resolution: {args.resolution}")
 
     # Create and run mock host
     host = MockGrievousInferenceHost(
@@ -438,6 +460,7 @@ def main():
         port_obs=args.port_obs,
         loop_freq_hz=args.freq,
         duration_s=args.duration,
+        resolution=args.resolution,
     )
 
     host.run()
