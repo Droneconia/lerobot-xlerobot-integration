@@ -372,6 +372,13 @@ class GrievousClient(Robot):
 
         # Only include follower state keys in obs_dict (filter out any leader keys from host)
         obs_dict: Dict[str, Any] = {**flat_state, "observation.state": state_vec}
+        
+        # Preserve metadata fields (seq_num, timestamp_sent, etc.)
+        # These are needed for latency testing and debugging
+        metadata_fields = ["seq_num", "timestamp_sent", "timestamp_received"]
+        for field in metadata_fields:
+            if field in observation:
+                obs_dict[field] = observation[field]
 
         # Decode camera images
         current_frames: Dict[str, np.ndarray] = {}
