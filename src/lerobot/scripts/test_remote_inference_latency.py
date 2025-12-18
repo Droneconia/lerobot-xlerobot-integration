@@ -202,15 +202,13 @@ def run_latency_test(cfg: LatencyTestConfig) -> None:
 
     try:
         while iteration < cfg.max_iterations:
-            loop_start = time.perf_counter()
-
             # Check duration
             elapsed = time.perf_counter() - start_time
             if elapsed >= cfg.duration:
                 logger.info(f"Test duration reached ({cfg.duration}s). Stopping.")
                 break
 
-            # 1. Get observation from robot client
+            # 1. WAIT for observation (blocking call - GrievousClient polls internally)
             try:
                 obs_dict = robot.get_observation()
             except Exception as e:
@@ -222,18 +220,16 @@ def run_latency_test(cfg: LatencyTestConfig) -> None:
             seq_num = obs_dict.pop("seq_num", -1)
             timestamp_sent = obs_dict.pop("timestamp_sent", 0.0)
             timestamp_received = time.perf_counter()
+            
+            # Skip if this is stale/cached data (shouldn't happen in synchronous mode)
+            if seq_num == -1:
+                if iteration == 0:
+                    logger.warning("Received observation without seq_num (cached data). Waiting for fresh data...")
+                continue
 
-            # Track if we're receiving observations
-            if seq_num >= 0:
-                received_count += 1
-                if received_count == 1:
-                    logger.info(f"First observation received (seq_num={seq_num})")
-
-                # Check for gaps
-                if last_seq_num >= 0 and seq_num != last_seq_num + 1:
-                    gap = seq_num - last_seq_num - 1
-                    logger.warning(f"Sequence gap: skipped {gap} observations")
-                last_seq_num = seq_num
+            # Track observations
+            if iteration == 0:
+                logger.info(f"✓ First observation received (seq_num={seq_num})")
 
             # 3. Build observation frame for policy
             # Remove observation.state if present (will be reconstructed)
@@ -377,13 +373,13 @@ def run_latency_test(cfg: LatencyTestConfig) -> None:
                 elapsed_total = time.perf_counter() - start_time
                 rate = iteration / elapsed_total if elapsed_total > 0 else 0
                 print(
-                    f"[{iteration:4d} iterations] "
-                    f"Rate: {rate:.1f} Hz | "
+                    f"[{iteration:4d} processed] "
+                    f"Processing rate: {rate:.1f} Hz | "
                     f"Last inference: {inference_time_ms:.1f}ms | "
-                    f"Elapsed: {elapsed_total:.1f}s"
+                    f"Test time: {elapsed_total:.1f}s"
                 )
             elif iteration == 0:
-                logger.info(f"First iteration complete: {inference_time_ms:.1f}ms")
+                logger.info(f"✓ First request processed: inference took {inference_time_ms:.1f}ms")
 
             iteration += 1
 

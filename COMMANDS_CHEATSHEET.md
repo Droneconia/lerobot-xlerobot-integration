@@ -234,18 +234,25 @@ Round-trip Latency:
 
 
 ### Interpreting Results:
-- **Round-trip < 200ms**: Excellent - suitable for responsive control
-- **Round-trip 200-300ms**: Good - acceptable with action chunking
-- **Round-trip > 300ms**: Poor - consider optimization or local inference
-- **Inference time**: Should be ~120-150ms on 5090, ~150-180ms on 4090
-- **Network overhead**: Should be < 50ms for good connection
+The test uses a **synchronous request-response** pattern:
+- Host sends ONE observation → waits for action → measures latency → repeats
+
+**Metrics Explained:**
+- **Round-Trip Latency**: Total time from observation sent to action received (host's perspective)
+  - `< 200ms`: Excellent - suitable for responsive robot control
+  - `200-300ms`: Good - acceptable with action chunking
+  - `> 300ms`: Poor - consider local inference or optimization
+- **Inference Time**: Time spent on RunPod GPU processing the observation (measured on RunPod)
+  - First inference ~400ms (model warmup) is normal
+  - Subsequent inferences should be ~4-5ms (5090) or ~5-10ms (4090)
+- **Test Time**: Total elapsed time since test started (for reference)
 
 ### Important Notes:
+- **Test mode**: Synchronous (one request at a time) - no dropped observations or sequence gaps
 - **Port mapping**: RunPod maps internal ports (5555, 5556) to external ports (check dashboard)
 - **Order matters**: Start RunPod client FIRST, then laptop mock host SECOND (within 120 seconds)
-- **First inference**: May be slower (~500-1000ms) due to model warmup - this is normal
-- **No physical robot needed**: Uses dummy observations (random state + camera frames)
-- **Git pull required**: Always `git pull` on RunPod to get latest fixes (especially camera key mapping)
+- **First inference spike**: ~400ms is normal due to model compilation/warmup
+- **No physical robot needed**: Uses dummy observations (zeros + random camera frames)
 
 ### Troubleshooting:
 **Issue: `All image features are missing from the batch`**

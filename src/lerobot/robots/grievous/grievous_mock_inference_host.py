@@ -196,155 +196,152 @@ class MockGrievousInferenceHost:
 
     def print_final_statistics(self) -> None:
         """Print comprehensive statistics summary at end of test."""
-        print("\n" + "=" * 60)
-        print(f"Latency Test Complete ({len(self.latencies)} samples)")
-        print("=" * 60)
+        print("\n" + "=" * 70)
+        print(f"RESULTS: Collected {len(self.latencies)} valid samples")
+        print("=" * 70)
+
+        if not self.latencies:
+            print("\nNo samples collected. Test failed.")
+            print("=" * 70 + "\n")
+            return
 
         stats = self.calculate_statistics()
 
         if "round_trip" in stats:
             rt = stats["round_trip"]
-            print("\nRound-trip Latency:")
-            print(f"  Mean:   {rt['mean']:.1f} ms")
-            print(f"  Median: {rt['median']:.1f} ms")
-            print(f"  P95:    {rt['p95']:.1f} ms")
-            print(f"  P99:    {rt['p99']:.1f} ms")
-            print(f"  Min:    {rt['min']:.1f} ms")
-            print(f"  Max:    {rt['max']:.1f} ms")
+            print("\n📊 ROUND-TRIP LATENCY (observation sent → action received):")
+            print(f"  Mean:      {rt['mean']:7.1f} ms")
+            print(f"  Median:    {rt['median']:7.1f} ms")
+            print(f"  P95:       {rt['p95']:7.1f} ms")
+            print(f"  P99:       {rt['p99']:7.1f} ms")
+            print(f"  Min:       {rt['min']:7.1f} ms")
+            print(f"  Max:       {rt['max']:7.1f} ms")
 
         if "inference" in stats:
             inf = stats["inference"]
-            print("\nInference Time (from client):")
-            print(f"  Mean:   {inf['mean']:.1f} ms")
-            print(f"  Median: {inf['median']:.1f} ms")
-            print(f"  P95:    {inf['p95']:.1f} ms")
-            print(f"  P99:    {inf['p99']:.1f} ms")
+            print("\n⚡ INFERENCE TIME (measured on RunPod GPU):")
+            print(f"  Mean:      {inf['mean']:7.1f} ms")
+            print(f"  Median:    {inf['median']:7.1f} ms")
+            print(f"  P95:       {inf['p95']:7.1f} ms")
+            print(f"  P99:       {inf['p99']:7.1f} ms")
+            print("\n  Note: Inference spikes may indicate model compilation or caching.")
 
-        if "network" in stats:
-            net = stats["network"]
-            print("\nNetwork Overhead:")
-            print(f"  Mean:   {net['mean']:.1f} ms")
-            print(f"  Median: {net['median']:.1f} ms")
-
-        dropped = self.observation_counter - len(self.latencies)
-        print(f"\nDropped Observations: {dropped}")
-        
-        if self.sequence_gaps:
-            print(f"Sequence Gaps: {self.sequence_gaps[:10]}")  # Show first 10 gaps
-        else:
-            print("Sequence Gaps: []")
-
-        print("=" * 60 + "\n")
+        print("\n" + "=" * 70 + "\n")
 
     def run(self) -> None:
-        """Main control loop: send observations and receive actions."""
+        """Main control loop: synchronous request-response for latency testing.
+        
+        Sends ONE observation, waits for the action response, calculates latency, repeats.
+        """
         logger.info(f"Starting {self.duration_s}-second latency test...")
-        print(f"\nConnecting to remote policy at {self.remote_ip}...")
+        print(f"\n{'='*70}")
+        print(f"LATENCY TEST: Synchronous Request-Response Mode")
+        print(f"{'='*70}")
+        print(f"Remote policy: {self.remote_ip}")
         print(f"Test duration: {self.duration_s} seconds")
-        print(f"Loop frequency: {self.loop_freq_hz} Hz")
-        print(f"Expected samples: ~{self.duration_s * self.loop_freq_hz // 10 * 10}\n")
+        print(f"Timeout per request: 5 seconds")
+        print(f"{'='*70}\n")
 
         start_time = time.perf_counter()
-        duration = 0
-
+        sample_count = 0
+        timeout_count = 0
+        
         try:
-            while duration < self.duration_s:
-                loop_start = time.perf_counter()
-
-                # 1. Generate dummy observation
+            while (time.perf_counter() - start_time) < self.duration_s:
+                iteration_start = time.perf_counter()
+                
+                # 1. Generate and send observation
                 observation = self.generate_dummy_observation()
-
-                # 2. Add metadata (sequence number and timestamp)
                 seq_num = self.observation_counter
                 self.observation_counter += 1
-                timestamp_sent = time.perf_counter()
-                self.pending_observations[seq_num] = timestamp_sent
-
+                
                 observation["seq_num"] = seq_num
-                observation["timestamp_sent"] = timestamp_sent
-
-                # 3. Send observation to client
+                observation["timestamp_sent"] = iteration_start
+                
                 try:
                     obs_json = json.dumps(observation)
-                    self.zmq_observation_socket.send_string(obs_json, flags=zmq.NOBLOCK)
-                except zmq.Again:
-                    logger.debug("Observation socket busy, dropping observation")
+                    self.zmq_observation_socket.send_string(obs_json)
+                    
+                    if sample_count == 0:
+                        print(f"✓ First observation sent (seq_num={seq_num})")
+                    
                 except Exception as e:
                     logger.error(f"Failed to send observation: {e}")
-
-                # 4. Try to receive action (non-blocking)
+                    continue
+                
+                # 2. WAIT for action response (blocking, with timeout)
+                poller = zmq.Poller()
+                poller.register(self.zmq_cmd_socket, zmq.POLLIN)
+                
                 try:
-                    action_msg = self.zmq_cmd_socket.recv_string(zmq.NOBLOCK)
-                    timestamp_received = time.perf_counter()
-                    action = json.loads(action_msg)
-
-                    # 5. Extract metadata
-                    action_seq = action.get("seq_num", -1)
-                    timestamp_action_received = action.get("timestamp_received", 0)
-                    inference_start = action.get("inference_start", 0)
-                    inference_end = action.get("inference_end", 0)
-                    timestamp_action_sent = action.get("timestamp_sent", 0)
-
-                    # 6. Calculate latencies
-                    if action_seq in self.pending_observations:
-                        # Round-trip latency (critical metric)
-                        round_trip_ms = (timestamp_received - self.pending_observations[action_seq]) * 1000
-
-                        # Inference time (from client's timing)
+                    socks = dict(poller.poll(timeout=5000))  # 5 second timeout
+                    
+                    if self.zmq_cmd_socket in socks:
+                        action_msg = self.zmq_cmd_socket.recv_string()
+                        timestamp_received = time.perf_counter()
+                        action = json.loads(action_msg)
+                        
+                        # 3. Extract timing metadata from action
+                        action_seq = action.get("seq_num", -1)
+                        inference_start = action.get("inference_start", 0)
+                        inference_end = action.get("inference_end", 0)
+                        
+                        # 4. Verify this is the action for our observation
+                        if action_seq != seq_num:
+                            logger.warning(
+                                f"Sequence mismatch: sent {seq_num}, received {action_seq}"
+                            )
+                            continue
+                        
+                        # 5. Calculate latencies (all times are from host's clock except inference)
+                        round_trip_ms = (timestamp_received - iteration_start) * 1000
                         inference_ms = (inference_end - inference_start) * 1000
-
-                        # Network overhead (round-trip - inference)
-                        network_ms = round_trip_ms - inference_ms
-
+                        
+                        # Note: We can't accurately separate network vs inference time
+                        # since inference timestamps are from a different machine's clock
+                        
                         # Store statistics
                         self.latencies.append(round_trip_ms)
                         self.inference_times.append(inference_ms)
-                        self.network_overheads.append(network_ms)
-
-                        # Check for sequence gaps
-                        if self.last_received_seq >= 0 and action_seq != self.last_received_seq + 1:
-                            gap = action_seq - self.last_received_seq - 1
-                            self.sequence_gaps.append(gap)
-                            logger.warning(f"Sequence gap detected: {gap} observations skipped")
-
-                        self.last_received_seq = action_seq
-
-                        # Print progress every 10 samples
-                        if len(self.latencies) % 10 == 0:
+                        sample_count += 1
+                        
+                        # Print progress
+                        if sample_count == 1:
+                            print(f"✓ First action received (round-trip: {round_trip_ms:.1f}ms)\n")
+                            print(f"{'Sample':<8} {'Round-Trip (ms)':<18} {'Inference (ms)':<18} {'Test Time (s)':<15}")
+                            print(f"{'-'*70}")
+                        
+                        if sample_count % 10 == 0 or sample_count <= 3:
+                            elapsed_s = time.perf_counter() - start_time
                             print(
-                                f"[{len(self.latencies):3d} samples] "
-                                f"Round-trip: {round_trip_ms:6.1f}ms | "
-                                f"Inference: {inference_ms:6.1f}ms | "
-                                f"Network: {network_ms:5.1f}ms"
+                                f"{sample_count:<8} {round_trip_ms:<18.1f} "
+                                f"{inference_ms:<18.1f} {elapsed_s:<15.1f}"
                             )
-
-                        # Clean up pending observations
-                        del self.pending_observations[action_seq]
+                    
                     else:
-                        logger.warning(f"Received action for unknown seq_num: {action_seq}")
-
-                except zmq.Again:
-                    # No action available yet (normal during startup)
-                    pass
+                        # Timeout waiting for action
+                        timeout_count += 1
+                        logger.warning(f"Timeout waiting for action (seq_num={seq_num})")
+                        
+                except zmq.ZMQError as e:
+                    logger.error(f"ZMQ error: {e}")
+                    continue
                 except json.JSONDecodeError as e:
                     logger.error(f"Failed to decode action JSON: {e}")
-                except Exception as e:
-                    logger.error(f"Error processing action: {e}")
-
-                # 7. Rate limiting
-                elapsed = time.perf_counter() - loop_start
-                sleep_time = max(1 / self.loop_freq_hz - elapsed, 0)
-                time.sleep(sleep_time)
-
-                duration = time.perf_counter() - start_time
-
-            logger.info(f"Test duration reached ({self.duration_s}s). Shutting down.")
+                    continue
+            
+            print(f"\n{'='*70}")
+            print(f"Test duration reached ({self.duration_s}s). Completing...")
+            print(f"{'='*70}")
 
         except KeyboardInterrupt:
-            logger.info("Keyboard interrupt received. Shutting down...")
+            print(f"\n{'='*70}")
+            print(f"Test interrupted by user")
+            print(f"{'='*70}")
 
         finally:
             # Print final statistics
+            print(f"\nCollected {sample_count} samples ({timeout_count} timeouts)")
             self.print_final_statistics()
             
             # Cleanup
