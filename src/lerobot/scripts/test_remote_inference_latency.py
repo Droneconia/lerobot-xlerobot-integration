@@ -209,17 +209,24 @@ def run_latency_test(cfg: LatencyTestConfig) -> None:
                 break
 
             # 1. WAIT for observation (blocking call - GrievousClient polls internally)
+            obs_receive_start = time.perf_counter()
             try:
                 obs_dict = robot.get_observation()
             except Exception as e:
                 logger.error(f"Error getting observation: {e}")
                 time.sleep(0.01)
                 continue
+            obs_receive_end = time.perf_counter()
+            obs_receive_time_ms = (obs_receive_end - obs_receive_start) * 1000
 
             # 2. Extract metadata from observation
             seq_num = obs_dict.pop("seq_num", -1)
             timestamp_sent = obs_dict.pop("timestamp_sent", 0.0)
             timestamp_received = time.perf_counter()
+            
+            # Log observation receive time (includes ZMQ receive + JSON parse + image decode)
+            if iteration == 0:
+                logger.info(f"First observation receive time (ZMQ+JSON+decode): {obs_receive_time_ms:.1f}ms")
             
             # Skip if this is stale/cached data (shouldn't happen in synchronous mode)
             if seq_num == -1:
@@ -354,6 +361,7 @@ def run_latency_test(cfg: LatencyTestConfig) -> None:
             action_dict = {key: float(robot_action[key]) for key in robot.action_features.keys()}
             action_dict["seq_num"] = seq_num
             action_dict["timestamp_received"] = timestamp_received
+            action_dict["obs_receive_time_ms"] = obs_receive_time_ms  # ZMQ + JSON parse + image decode
             action_dict["inference_start"] = inference_start
             action_dict["inference_end"] = inference_end
             action_dict["timestamp_sent"] = time.perf_counter()

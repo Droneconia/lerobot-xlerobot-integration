@@ -93,10 +93,13 @@ class MockGrievousInferenceHost:
         self.sequence_gaps: List[int] = []
         self.last_received_seq = -1
         
-        # Detailed timing breakdowns
+        # Detailed timing breakdowns (laptop side)
         self.timing_image_encode: List[float] = []
         self.timing_json_serialize: List[float] = []
         self.timing_json_deserialize: List[float] = []
+        
+        # RunPod side timings (from action metadata)
+        self.timing_obs_receive: List[float] = []  # ZMQ receive + JSON parse + image decode on RunPod
 
         logger.info(
             f"MockGrievousInferenceHost initialized: freq={loop_freq_hz}Hz, duration={duration_s}s"
@@ -234,22 +237,33 @@ class MockGrievousInferenceHost:
             print(f"  P99:       {inf['p99']:7.1f} ms")
 
         # Timing breakdown
-        if self.timing_image_encode:
-            print("\n🔍 TIMING BREAKDOWN (averages, laptop side):")
-            print(f"  Image Encoding (3 cameras):  {np.mean(self.timing_image_encode):7.1f} ms")
-            print(f"  JSON Serialization:           {np.mean(self.timing_json_serialize):7.1f} ms")
-            print(f"  JSON Deserialization:         {np.mean(self.timing_json_deserialize):7.1f} ms")
+        if self.timing_image_encode and self.timing_obs_receive:
+            print("\n🔍 TIMING BREAKDOWN (averages):")
+            print(f"\n  Laptop side:")
+            print(f"    Image Encoding (3 cameras):    {np.mean(self.timing_image_encode):7.1f} ms")
+            print(f"    JSON Serialization:             {np.mean(self.timing_json_serialize):7.1f} ms")
+            print(f"    JSON Deserialization:           {np.mean(self.timing_json_deserialize):7.1f} ms")
             
-            overhead = (
+            print(f"\n  RunPod side:")
+            print(f"    Obs Receive (ZMQ+parse+decode):{np.mean(self.timing_obs_receive):7.1f} ms")
+            print(f"    Inference (median, excl warmup):{np.median(self.inference_times):7.1f} ms")
+            
+            measured_total = (
                 np.mean(self.timing_image_encode) + 
                 np.mean(self.timing_json_serialize) + 
-                np.mean(self.timing_json_deserialize)
+                np.mean(self.timing_json_deserialize) +
+                np.mean(self.timing_obs_receive) +
+                np.median(self.inference_times)
             )
-            print(f"  → Total measured overhead:    {overhead:7.1f} ms")
-            print(f"  → Network + unmeasured:       {np.mean(self.latencies) - overhead - np.median(self.inference_times):7.1f} ms (estimated)")
+            network_unknown = np.mean(self.latencies) - measured_total
+            
+            print(f"\n  Summary:")
+            print(f"    Total measured:                {measured_total:7.1f} ms")
+            print(f"    Network transmission:          {network_unknown:7.1f} ms (estimated)")
+            print(f"    → ROUND-TRIP TOTAL:            {np.mean(self.latencies):7.1f} ms")
 
         print("\n  Note: First inference (~400ms) is model warmup/compilation.")
-        print("=" * 85 + "\n")
+        print("=" * 95 + "\n")
 
     def run(self) -> None:
         """Main control loop: synchronous request-response for latency testing.
@@ -317,6 +331,7 @@ class MockGrievousInferenceHost:
                         action_seq = action.get("seq_num", -1)
                         inference_start = action.get("inference_start", 0)
                         inference_end = action.get("inference_end", 0)
+                        obs_receive_ms = action.get("obs_receive_time_ms", 0.0)  # RunPod side timing
                         
                         # 7. Verify this is the action for our observation
                         if action_seq != seq_num:
@@ -335,21 +350,22 @@ class MockGrievousInferenceHost:
                         self.timing_image_encode.append(encode_time_ms)
                         self.timing_json_serialize.append(json_serialize_ms)
                         self.timing_json_deserialize.append(json_deserialize_ms)
+                        self.timing_obs_receive.append(obs_receive_ms)
                         sample_count += 1
                         
                         # Print progress (ALL samples)
                         if sample_count == 1:
                             print(f"✓ First action received (round-trip: {round_trip_ms:.1f}ms)\n")
-                            print(f"{'#':<5} {'Round-Trip':<12} {'Inference':<12} {'Img Encode':<12} {'JSON Ser':<12} {'JSON Deser':<12} {'Test Time':<12}")
-                            print(f"{'-'*85}")
+                            print(f"{'#':<5} {'Round-Trip':<12} {'Inference':<11} {'Obs Recv':<11} {'Img Enc':<10} {'JSON Ser':<10} {'JSON Des':<10} {'Test Time':<11}")
+                            print(f"{'-'*95}")
                         
                         # Print EVERY sample
                         elapsed_s = time.perf_counter() - start_time
                         print(
                             f"{sample_count:<5} {round_trip_ms:<12.1f} "
-                            f"{inference_ms:<12.1f} {encode_time_ms:<12.1f} "
-                            f"{json_serialize_ms:<12.1f} {json_deserialize_ms:<12.1f} "
-                            f"{elapsed_s:<12.1f}"
+                            f"{inference_ms:<11.1f} {obs_receive_ms:<11.1f} "
+                            f"{encode_time_ms:<10.1f} {json_serialize_ms:<10.1f} "
+                            f"{json_deserialize_ms:<10.1f} {elapsed_s:<11.1f}"
                         )
                     
                     else:
