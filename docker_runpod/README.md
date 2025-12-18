@@ -114,31 +114,34 @@ docker push alexkoven/lerobot-grievous-training:latest
 ssh root@<POD-IP> -p <MAPPED-PORT-22>
 ```
 
-### 5. Setup Code in Pod
-```bash
-# First time: Clone Grievous repo
-cd /workspace
-git clone https://github.com/alexkoven/Grievous.git
-cd Grievous
+### 5. Wait for Automatic Setup
 
-# Install LeRobot from Grievous source (all dependencies pre-installed in image)
-pip install -e ".[smolvla]"
+The entrypoint automatically (on pod start):
+- ✅ Clones Grievous repo to `/workspace/Grievous` (if not exists)
+- ✅ Checks out `dev` branch
+- ✅ Installs lerobot in editable mode (`pip install --no-deps -e .`)
 
-# Verify
-python -c "from lerobot.policies.smolvla.modeling_smolvla import SmolVLAPolicy; print('✓ Ready!')"
-```
+**Watch the logs** to see setup progress.
 
 ### 6. Run Training
 ```bash
+# SSH into pod
+ssh root@<POD-IP> -p <MAPPED-PORT-22>
+
+# Start training (Grievous already set up!)
 cd /workspace/Grievous
 ./train_grievous.sh
 ```
 
-**Note:** On subsequent pod starts (same network volume), just:
+**Subsequent pod starts** (same network volume):
+- Grievous already cloned → skips cloning
+- Already on dev → stays on dev
+- Just reinstalls package link (instant)
+
+**To update code:**
 ```bash
 cd /workspace/Grievous
-git pull  # Update code if needed
-./train_grievous.sh
+git pull
 ```
 
 ---

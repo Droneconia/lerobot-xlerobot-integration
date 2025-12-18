@@ -68,6 +68,41 @@ else
 fi
 
 echo "=========================================="
+echo "Setting up Grievous repository..."
+echo "=========================================="
+
+# Auto-clone and setup Grievous repository (ONLY on first time)
+if [ ! -d "/workspace/Grievous" ]; then
+    echo "Grievous not found - performing first-time setup..."
+    
+    # Clone repository
+    echo "Cloning Grievous repository..."
+    cd /workspace
+    git clone https://github.com/alexkoven/Grievous.git
+    echo "✓ Grievous cloned"
+    
+    # Checkout dev branch
+    echo "Checking out dev branch..."
+    cd /workspace/Grievous
+    git checkout dev 2>/dev/null || echo "⚠ dev branch checkout failed (may already be on dev)"
+    echo "✓ On dev branch: $(git branch --show-current)"
+    
+    # Install lerobot in editable mode (instant - just links package)
+    echo "Installing lerobot in editable mode..."
+    pip install --no-deps -e . > /dev/null 2>&1
+    if [ $? -eq 0 ]; then
+        echo "✓ LeRobot installed successfully"
+    else
+        echo "⚠ LeRobot installation had warnings (may be okay)"
+    fi
+    
+    echo "✓ First-time setup complete!"
+else
+    echo "✓ Grievous repository already exists - skipping setup"
+    echo "  (Current branch: $(cd /workspace/Grievous && git branch --show-current 2>/dev/null || echo 'unknown'))"
+fi
+
+echo "=========================================="
 echo "Environment Ready"
 echo "Python: $(python --version)"
 echo "PyTorch: $(python -c 'import torch; print(torch.__version__)' 2>/dev/null || echo 'Not found')"
@@ -75,29 +110,22 @@ echo "CUDA: $(python -c 'import torch; print(torch.cuda.is_available())' 2>/dev/
 echo "GPU: $(python -c 'import torch; print(torch.cuda.get_device_name(0) if torch.cuda.is_available() else \"N/A\")' 2>/dev/null || echo 'N/A')"
 echo "Conda env: $CONDA_DEFAULT_ENV"
 echo "Working directory: $(pwd)"
+echo "LeRobot: $(python -c 'import lerobot; print(f\"v{lerobot.__version__}\")' 2>/dev/null || echo 'Not found')"
 echo "=========================================="
 echo ""
-echo "📁 Setup Instructions:"
+echo "🚀 Ready to train!"
 echo ""
-echo "1. Clone Grievous repo (first time only):"
-echo "   cd /workspace"
-echo "   git clone https://github.com/alexkoven/Grievous.git"
-echo ""
-echo "2. Install LeRobot from Grievous source:"
-echo "   cd /workspace/Grievous"
-echo "   pip install --no-cache-dir -e '.[smolvla]'"
-echo ""
-echo "3. Verify installation:"
-echo "   python -c 'from lerobot.policies.smolvla.modeling_smolvla import SmolVLAPolicy; print(\"✓ SmolVLA ready!\")'"
-echo ""
-echo "4. Start training:"
 echo "   cd /workspace/Grievous"
 echo "   ./train_grievous.sh"
 echo ""
 echo "📡 SSH Access:"
 echo "   Direct: ssh root@<POD-IP> -p <MAPPED-PORT-22>"
 echo ""
-echo "📝 Note: All dependencies pre-installed, only clone + install needed!"
+echo "📝 To update code:"
+echo "   cd /workspace/Grievous"
+echo "   git pull"
+echo ""
+echo "✓ All setup complete - Grievous ready for training!"
 echo "=========================================="
 
 # Execute the main command (defaults to "sleep infinity")

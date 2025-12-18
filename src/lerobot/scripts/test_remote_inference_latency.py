@@ -136,8 +136,7 @@ def run_latency_test(cfg: LatencyTestConfig) -> None:
     logger.info(f"Loading policy from {cfg.policy.pretrained_path}...")
     policy = make_policy(cfg.policy, ds_meta=dataset_meta)
     logger.info(f"Policy device: {policy.config.device}")
-    logger.info(f"Policy input shapes: {policy.config.input_shapes}")
-    logger.info(f"Policy output shapes: {policy.config.output_shapes}")
+    logger.info(f"Policy loaded successfully")
 
     # Create preprocessor and postprocessor
     logger.info("Creating preprocessor and postprocessor...")
