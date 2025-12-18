@@ -123,7 +123,7 @@ def run_latency_test(cfg: LatencyTestConfig) -> None:
     # Add camera features manually (they're not in robot.observation_features)
     # Robot cameras: left_wrist, right_wrist, head
     # Policy expects: camera1, camera2, camera3
-    from lerobot.datasets.pipeline_features import VideoFrame
+    from lerobot.datasets.video_utils import VideoFrame
     
     # Add camera features to dataset_features
     dataset_features["observation.images.camera1"] = VideoFrame(height=480, width=640)
