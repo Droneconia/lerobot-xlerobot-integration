@@ -5,15 +5,17 @@
 **System:** Ubuntu
 
 ## Progress Tracker
-**Status:** Step 1 ✓ Complete, Step 2 ✓ Complete, Ready for Step 3 (Build Image)  
-**Current Task:** USER needs to build Docker image (Step 3)  
-**Last Updated:** Dec 16, 2025  
+**Status:** Step 1-6 ✓ Complete, Ready for Step 7 (RunPod Setup)  
+**Current Task:** USER needs to set up RunPod credentials and template  
+**Last Updated:** Dec 17, 2025  
 
 **Credentials (fill in as you get them):**
 - Docker version: 28.2.2 ✓
-- Docker Hub username: _____
-- HF token: _____ (store securely, don't commit!)
-- WandB key: _____ (store securely, don't commit!)
+- Image built: ce5ad1c70459 ✓
+- Image pushed to Docker Hub: ✓
+- Docker Hub username: _____ (your image path)
+- HF token: _____ (get from https://huggingface.co/settings/tokens)
+- WandB key: _____ (get from https://wandb.ai/authorize)
 
 ---
 
@@ -200,6 +202,12 @@ docker push <YOUR-USERNAME>/lerobot-grievous-training:v1.0
   - `HF_HOME` = `/workspace/.cache/huggingface`
   - `CUDA_VISIBLE_DEVICES` = `0`
 
+- [ ] **USER**: Expose TCP Ports (for inference - allows RPi5 to connect):
+  - Click "Add Port" or similar button
+  - **Port 5555**: TCP (for commands/actions from policy to robot)
+  - **Port 5556**: TCP (for observations from robot to policy)
+  - Note: These are used when running inference, not needed for training only
+
 - [ ] **USER**: Save template
 
 **Template Created:** Yes / No | **Template Name:** _____ | **Date:** _____
@@ -289,6 +297,55 @@ cd /lerobot
 - Full training: Success / Failed / In Progress
 - **Date:** _____
 - **Issues:** _____
+
+---
+
+## Step 12: Running Inference (Optional - USER + RPi5)
+
+**When you want to run inference from RunPod with your robot:**
+
+### 12.1 On RunPod Pod
+1. [ ] Connect to your running pod
+2. [ ] Note the pod's public IP address (shown in RunPod dashboard)
+3. [ ] Verify ports 5555 and 5556 are exposed
+4. [ ] Start policy inference server (waiting for robot to connect)
+```bash
+cd /lerobot
+# Run your inference script that listens on ports 5555/5556
+# The script should wait for the RPi5 to connect
+```
+
+### 12.2 On RPi5 (Robot Side)
+1. [ ] SSH into your RPi5
+2. [ ] Run the Grievous inference host with RunPod IP:
+```bash
+python -m lerobot.robots.grievous.grievous_inference_host \
+    --remote-ip <RUNPOD-POD-IP> \
+    --port-cmd 5555 \
+    --port-obs 5556 \
+    --duration 300
+```
+
+**What happens:**
+- RPi5 connects to RunPod pod's exposed ports
+- RPi5 sends robot observations (camera frames + state) → RunPod
+- RunPod policy processes observations and sends actions → RPi5
+- RPi5 executes actions on Grievous robot
+- Loop continues until duration expires or interrupted
+
+**Architecture:**
+```
+[RPi5 - Grievous Robot]  <--TCP 5555/5556-->  [RunPod Pod - Policy Server]
+    (Host)                                         (Client/Policy)
+  - Controls robot                               - Runs inference
+  - Sends observations                           - Sends actions
+  - Receives actions                             - Receives observations
+```
+
+**Key Points:**
+- Ports 5555/5556 must be exposed in RunPod template
+- RPi5 initiates connection to RunPod (reverse of typical client-server)
+- Use `--dry-run` on RPi5 for safe testing without moving robot
 
 ---
 
