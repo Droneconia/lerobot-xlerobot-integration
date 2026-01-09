@@ -233,6 +233,16 @@ class SmolVLAPolicy(PreTrainedPolicy):
         config.validate_features()
         self.config = config
 
+        # Validate action dimensions are within padding limits
+        if config.action_feature is not None:
+            action_dim = config.action_feature.shape[0]
+            if action_dim > config.max_action_dim:
+                raise ValueError(
+                    f"Action dimension ({action_dim}) exceeds max_action_dim ({config.max_action_dim}). "
+                    f"SmolVLA pads actions to {config.max_action_dim} dimensions. "
+                    f"Either reduce your robot's action space or increase max_action_dim in the config."
+                )
+
         self.model = VLAFlowMatching(config)
         self.reset()
 
