@@ -360,8 +360,9 @@ def make_policy(
             raise ValueError("env_cfg cannot be None when ds_meta is not provided")
         features = env_to_policy_features(env_cfg)
 
-    if not cfg.output_features:
-        cfg.output_features = {key: ft for key, ft in features.items() if ft.type is FeatureType.ACTION}
+    # Always override output_features with dataset's action dimensions to support fine-tuning on different robots
+    # Even when loading from pretrained, the action head should match the new dataset's dimensions
+    cfg.output_features = {key: ft for key, ft in features.items() if ft.type is FeatureType.ACTION}
     if not cfg.input_features:
         cfg.input_features = {key: ft for key, ft in features.items() if key not in cfg.output_features}
     kwargs["config"] = cfg

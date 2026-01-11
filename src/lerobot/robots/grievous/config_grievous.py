@@ -28,17 +28,17 @@ from ..config import RobotConfig
 def grievous_cameras_config() -> dict[str, CameraConfig]:
     """Default camera configuration for Grievous (same as XLerobot).
     
-    Camera paths (from laptop_host_setup.md):
-    - Left wrist: /dev/cam_left
-    - Right wrist: /dev/cam_right
-    - Head: RealSense D435 with serial 032622074046
+    Camera paths (RPi5):
+    - Left wrist: /dev/video0 (Innomaker at usb 1.2)
+    - Right wrist: /dev/video8 (Innomaker at usb 1.3)
+    - Head: RealSense D435 with serial 032622074046 (uses video2-7)
     """
     return {
         "left_wrist": OpenCVCameraConfig(
-            index_or_path="/dev/cam_left", fps=30, width=640, height=480, rotation=Cv2Rotation.NO_ROTATION
+            index_or_path="/dev/video0", fps=30, width=640, height=480, rotation=Cv2Rotation.NO_ROTATION
         ),
         "right_wrist": OpenCVCameraConfig(
-            index_or_path="/dev/cam_right", fps=30, width=640, height=480, rotation=Cv2Rotation.NO_ROTATION
+            index_or_path="/dev/video8", fps=30, width=640, height=480, rotation=Cv2Rotation.NO_ROTATION
         ),
         "head": RealSenseCameraConfig(
             serial_number_or_name="032622074046",
@@ -47,7 +47,7 @@ def grievous_cameras_config() -> dict[str, CameraConfig]:
             height=480,
             color_mode=ColorMode.BGR,
             rotation=Cv2Rotation.NO_ROTATION,
-            use_depth=True
+            use_depth=False  # Disabled - conflicts with other video devices
         ),
     }
 
@@ -111,12 +111,14 @@ class GrievousHostConfig:
     # Network Configuration
     port_zmq_cmd: int = 5555
     port_zmq_observations: int = 5556
+    remote_ip: str | None = None  # Runpod IP for reverse connection mode (None = bind locally)
     
     # Runtime configuration
     connection_time_s: int = 3600  # Max runtime before auto-shutdown
     watchdog_timeout_ms: int = 500  # Stop robot if no commands received
     max_loop_freq_hz: int = 30  # Control loop frequency
     teleop_freq_hz: int = 120  # Teleop control thread frequency (higher rate for smoother control)
+    dry_run: bool = False  # If True, log actions but don't send to robot (safe testing)
 
 
 @RobotConfig.register_subclass("grievous_client")
@@ -128,12 +130,13 @@ class GrievousClientConfig(RobotConfig):
     """
     
     # REQUIRED FIELDS FIRST (no defaults)
-    remote_ip: str = "192.168.50.47" # IP address of RPi5 - REQUIRED
+    remote_ip: str = "192.168.50.47" # IP address of RPi5 - REQUIRED (ignored in reverse_connection mode)
     
     # OPTIONAL FIELDS (with defaults)
     # ZMQ ports (must match host)
     port_zmq_cmd: int = 5555
     port_zmq_observations: int = 5556
+    reverse_connection: bool = False  # True = bind locally (server mode), False = connect to remote_ip (client mode)
     
     # Polling configuration
     polling_timeout_ms: int = 15

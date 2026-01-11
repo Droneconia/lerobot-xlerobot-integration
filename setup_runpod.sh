@@ -9,15 +9,100 @@ echo "RunPod LeRobot Training Setup"
 echo "=========================================="
 
 # ============================================================================
-# Step 1: Navigate to Workspace
+# Cleanup Function
+# ============================================================================
+cleanup_storage() {
+    echo ""
+    echo "Performing storage cleanup..."
+    
+    # Show disk usage before cleanup
+    echo "Disk usage before cleanup:"
+    df -h /workspace 2>/dev/null || df -h /
+    
+    # Clean pip cache
+    echo "Cleaning pip cache..."
+    pip cache purge 2>/dev/null || true
+    rm -rf /root/.cache/pip 2>/dev/null || true
+    rm -rf /workspace/.cache/pip/* 2>/dev/null || true
+    
+    # Clean conda cache
+    echo "Cleaning conda cache..."
+    if command -v conda &> /dev/null; then
+        conda clean -a -y 2>/dev/null || true
+    fi
+    if [ -d "/workspace/miniconda3/pkgs" ]; then
+        rm -rf /workspace/miniconda3/pkgs/cache/* 2>/dev/null || true
+    fi
+    
+    # Clean apt cache
+    echo "Cleaning apt cache..."
+    apt-get clean 2>/dev/null || true
+    rm -rf /var/lib/apt/lists/* 2>/dev/null || true
+    
+    # Clean temporary files
+    echo "Cleaning temporary files..."
+    rm -rf /tmp/* 2>/dev/null || true
+    rm -rf /workspace/tmp/* 2>/dev/null || true
+    
+    # Clean Python bytecode caches
+    echo "Cleaning Python bytecode caches..."
+    find /workspace -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
+    find /workspace -type f -name "*.pyc" -delete 2>/dev/null || true
+    find /workspace -type f -name "*.pyo" -delete 2>/dev/null || true
+    
+    # Clean system logs (if accessible)
+    echo "Cleaning system logs..."
+    journalctl --vacuum-time=1d 2>/dev/null || true
+    
+    # Clean old Miniconda installer if present
+    echo "Cleaning old installers..."
+    rm -f /workspace/Miniconda3-*.sh 2>/dev/null || true
+    
+    # Show disk usage after cleanup
+    echo ""
+    echo "Disk usage after cleanup:"
+    df -h /workspace 2>/dev/null || df -h /
+    
+    echo "Cleanup completed."
+}
+
+# ============================================================================
+# Step 1: Navigate to Workspace and Cleanup
 # ============================================================================
 echo ""
-echo "Step 1: Navigating to /workspace..."
+echo "Step 1: Navigating to /workspace and performing initial cleanup..."
 cd /workspace
 echo "Current directory: $(pwd)"
 
+# Perform initial cleanup to free up space
+cleanup_storage
+
 # ============================================================================
-# Step 2: Install Miniconda
+# Step 2: Install screen (for background training sessions)
+# ============================================================================
+echo ""
+echo "Step 2: Installing screen for background session management..."
+
+# Check if screen is already installed
+if command -v screen &> /dev/null; then
+    echo "screen is already installed: $(screen --version)"
+else
+    echo "Installing screen..."
+    # Use apt-get with minimal output and no interactive prompts
+    # Screen is a small package (~1-2MB), won't cause memory issues
+    DEBIAN_FRONTEND=noninteractive apt-get update -qq > /dev/null 2>&1
+    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq screen > /dev/null 2>&1
+    
+    # Verify installation
+    if command -v screen &> /dev/null; then
+        echo "✓ screen installed successfully: $(screen --version)"
+    else
+        echo "WARNING: screen installation may have failed. You can install manually later with: apt-get install -y screen"
+    fi
+fi
+
+# ============================================================================
+# Step 3: Install Miniconda
 # ============================================================================
 echo ""
 echo "Step 2: Installing Miniconda to /workspace..."
@@ -31,10 +116,10 @@ else
 fi
 
 # ============================================================================
-# Step 3: Create Conda Environment
+# Step 4: Create Conda Environment
 # ============================================================================
 echo ""
-echo "Step 3: Creating conda environment 'grievous' with Python 3.10..."
+echo "Step 4: Creating conda environment 'grievous' with Python 3.11..."
 
 # Source conda to use it in this script
 source /workspace/miniconda3/etc/profile.d/conda.sh
@@ -45,10 +130,12 @@ conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/ma
 conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/r || true
 
 # Create environment if it doesn't exist
+# System PyTorch will be accessed via PYTHONPATH (set in Step 7)
+# NOTE: Using Python 3.11 to match system PyTorch installation
 if conda env list | grep -q "grievous"; then
     echo "Conda environment 'grievous' already exists, skipping creation."
 else
-    conda create -y -n grievous python=3.10
+    conda create -y -n grievous python=3.11
     echo "Conda environment 'grievous' created successfully."
 fi
 
@@ -57,10 +144,10 @@ conda activate grievous
 echo "Conda environment activated."
 
 # ============================================================================
-# Step 4: Install ffmpeg
+# Step 5: Install ffmpeg
 # ============================================================================
 echo ""
-echo "Step 4: Installing ffmpeg in conda environment..."
+echo "Step 5: Installing ffmpeg in conda environment..."
 conda install -y ffmpeg -c conda-forge
 echo "ffmpeg installed successfully."
 
@@ -69,10 +156,10 @@ echo ""
 echo "Python version: $(python --version)"
 
 # ============================================================================
-# Step 5: Configure Environment Variables
+# Step 6: Configure Environment Variables
 # ============================================================================
 echo ""
-echo "Step 5: Configuring environment variables for space management..."
+echo "Step 6: Configuring environment variables for space management..."
 
 # Create temporary directory on network volume
 mkdir -p /workspace/tmp
@@ -96,35 +183,192 @@ echo "  PIP_CACHE_DIR=$PIP_CACHE_DIR"
 echo "  HF_HOME=$HF_HOME"
 
 # ============================================================================
-# Step 6: Verify PyTorch (should already be 2.4)
+# Step 7: Find and Link System PyTorch
 # ============================================================================
 echo ""
-echo "Step 6: Verifying PyTorch installation..."
-python -c "import torch; print(f'PyTorch version: {torch.__version__}'); print(f'CUDA available: {torch.cuda.is_available()}'); print(f'GPU: {torch.cuda.get_device_name(0) if torch.cuda.is_available() else \"N/A\"}')"
+echo "Step 7: Finding system PyTorch installation..."
 
-# ============================================================================
-# Step 7: Clone Repository
-# ============================================================================
-echo ""
-echo "Step 7: Cloning Grievous repository..."
+# Try to find PyTorch in various Python installations
+TORCH_PATH=""
+PYTHON_WITH_TORCH=""
 
-if [ -d "/workspace/Grievous" ]; then
-    echo "Repository already exists at /workspace/Grievous, skipping clone."
-    echo "To update, run: cd /workspace/Grievous && git pull"
-else
-    git clone https://github.com/alexkoven/Grievous.git /workspace/Grievous
-    echo "Repository cloned successfully."
+# Check system python3
+if python3 -c "import torch" 2>/dev/null; then
+    PYTHON_WITH_TORCH="python3"
+    TORCH_PATH=$(python3 -c "import torch; import os; print(os.path.dirname(os.path.dirname(torch.__file__)))" 2>/dev/null)
+    echo "Found PyTorch in system python3: $TORCH_PATH"
+# Check /usr/bin/python3
+elif /usr/bin/python3 -c "import torch" 2>/dev/null; then
+    PYTHON_WITH_TORCH="/usr/bin/python3"
+    TORCH_PATH=$(/usr/bin/python3 -c "import torch; import os; print(os.path.dirname(os.path.dirname(torch.__file__)))" 2>/dev/null)
+    echo "Found PyTorch in /usr/bin/python3: $TORCH_PATH"
+# Check if there's a site-packages directory with torch
+elif [ -d "/usr/local/lib/python3" ]; then
+    for py_dir in /usr/local/lib/python3.*/site-packages; do
+        if [ -d "$py_dir/torch" ]; then
+            TORCH_PATH="$py_dir"
+            echo "Found PyTorch in: $TORCH_PATH"
+            break
+        fi
+    done
 fi
 
-cd /workspace/Grievous
-echo "Current directory: $(pwd)"
+# If we found PyTorch, add it to PYTHONPATH
+if [ -n "$TORCH_PATH" ] && [ -d "$TORCH_PATH" ]; then
+    echo "Adding PyTorch path to PYTHONPATH: $TORCH_PATH"
+    export PYTHONPATH="$TORCH_PATH:$PYTHONPATH"
+    
+    # Verify it works
+    if python -c "import torch; print(f'PyTorch version: {torch.__version__}'); print(f'CUDA available: {torch.cuda.is_available()}'); print(f'GPU: {torch.cuda.get_device_name(0) if torch.cuda.is_available() else \"N/A\"}')" 2>/dev/null; then
+        echo "✓ PyTorch is now accessible from conda environment"
+    else
+        echo "WARNING: PyTorch path added but still not accessible. May need to check dependencies."
+    fi
+else
+    echo "ERROR: Could not find PyTorch installation."
+    echo "Checking if PyTorch exists in any Python installation..."
+    python3 -c "import torch; print('PyTorch found in python3')" 2>/dev/null || echo "  - Not in python3"
+    /usr/bin/python3 -c "import torch; print('PyTorch found in /usr/bin/python3')" 2>/dev/null || echo "  - Not in /usr/bin/python3"
+    echo ""
+    echo "You may need to install PyTorch manually or check the container image documentation."
+fi
 
 # ============================================================================
-# Step 8: Install LeRobot with SmolVLA Dependencies
+# Step 8: Find Repository Directory
 # ============================================================================
 echo ""
-echo "Step 8: Installing LeRobot with SmolVLA dependencies..."
-echo "This may take 15-30 minutes depending on network speed..."
+echo "Step 8: Finding repository directory..."
+
+# Try to find the repository directory
+REPO_DIR=""
+
+# First, check if we're already in the repo (script might be run from repo root)
+if [ -f "pyproject.toml" ]; then
+    REPO_DIR=$(pwd)
+    echo "Found repository at current directory: $REPO_DIR"
+# Check common locations
+elif [ -f "/workspace/Grievous/pyproject.toml" ]; then
+    REPO_DIR="/workspace/Grievous"
+    echo "Found repository at: $REPO_DIR"
+elif [ -f "/workspace/lerobot-xlerobot-integration/pyproject.toml" ]; then
+    REPO_DIR="/workspace/lerobot-xlerobot-integration"
+    echo "Found repository at: $REPO_DIR"
+# Search in /workspace for any directory with pyproject.toml
+else
+    echo "Searching for repository in /workspace..."
+    for dir in /workspace/*/; do
+        if [ -f "${dir}pyproject.toml" ]; then
+            REPO_DIR="$dir"
+            echo "Found repository at: $REPO_DIR"
+            break
+        fi
+    done
+fi
+
+# If still not found, check if script is in a repo directory
+if [ -z "$REPO_DIR" ]; then
+    SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
+    if [ -f "$SCRIPT_DIR/pyproject.toml" ]; then
+        REPO_DIR="$SCRIPT_DIR"
+        echo "Found repository at script location: $REPO_DIR"
+    fi
+fi
+
+# Final check
+if [ -z "$REPO_DIR" ] || [ ! -f "$REPO_DIR/pyproject.toml" ]; then
+    echo "ERROR: Could not find repository directory with pyproject.toml"
+    echo "Searched in:"
+    echo "  - Current directory: $(pwd)"
+    echo "  - /workspace/Grievous"
+    echo "  - /workspace/lerobot-xlerobot-integration"
+    echo "  - All subdirectories in /workspace"
+    echo ""
+    echo "Please either:"
+    echo "  1. Clone the repository to /workspace/Grievous, or"
+    echo "  2. Run this script from within the repository directory"
+    exit 1
+fi
+
+# Navigate to repository directory
+cd "$REPO_DIR"
+echo "Changed to repository directory: $(pwd)"
+
+# ============================================================================
+# Step 9: Install Pillow in Conda Environment
+# ============================================================================
+echo ""
+echo "Step 9: Installing Pillow in conda environment (Python 3.11 compatible)..."
+echo "This ensures PIL is compiled for the conda Python, ensuring compatibility..."
+
+pip install --no-cache-dir Pillow
+
+# Verify Pillow installation works correctly
+echo "Verifying Pillow installation..."
+if python -c "from PIL import Image; print(f'Pillow version: {Image.__version__}'); print('Pillow import successful')" 2>/dev/null; then
+    echo "✓ Pillow is correctly installed and importable"
+else
+    echo "WARNING: Pillow installation verification failed. This may cause issues later."
+    echo "Attempting to diagnose..."
+    python -c "import sys; print('Python path:'); [print(f'  {p}') for p in sys.path]" 2>/dev/null || true
+    python -c "import PIL; print(f'PIL location: {PIL.__file__}')" 2>/dev/null || true
+fi
+
+echo ""
+echo "Pillow installation step completed."
+
+# ============================================================================
+# Step 10: Verify System PyTorch and Install LeRobot
+# ============================================================================
+echo ""
+echo "Step 10: Verifying system PyTorch accessibility..."
+
+# Check if PyTorch is accessible (should be via PYTHONPATH from Step 7)
+if ! python -c "import torch; print(f'PyTorch {torch.__version__} found'); assert torch.__version__.startswith('2.4'), 'Wrong PyTorch version'" 2>/dev/null; then
+    echo ""
+    echo "=========================================="
+    echo "ERROR: System PyTorch is not accessible!"
+    echo "=========================================="
+    echo ""
+    echo "The pod should have PyTorch 2.4.0 pre-installed, but it's not accessible"
+    echo "from the conda environment. This indicates a configuration problem."
+    echo ""
+    echo "Debugging information:"
+    echo "  PYTHONPATH: $PYTHONPATH"
+    echo "  Python location: $(which python)"
+    echo "  Python version: $(python --version)"
+    echo ""
+    echo "Trying to import PyTorch:"
+    python -c "import torch" 2>&1 || true
+    echo ""
+    echo "Please check:"
+    echo "  1. Is this running on a RunPod instance with PyTorch pre-installed?"
+    echo "  2. Did Step 7 correctly detect the system PyTorch path?"
+    echo "  3. Are there Python version mismatches (system vs conda)?"
+    echo ""
+    exit 1
+fi
+
+echo "✓ System PyTorch 2.4.x is accessible"
+python -c "import torch; print(f'  PyTorch version: {torch.__version__}'); print(f'  CUDA available: {torch.cuda.is_available()}'); print(f'  Device: {torch.cuda.get_device_name(0) if torch.cuda.is_available() else \"N/A\"}')"
+
+# Make pip recognize system PyTorch by adding .pth file to conda site-packages
+echo ""
+echo "Configuring conda environment to recognize system PyTorch for pip..."
+CONDA_SITE_PACKAGES=$(python -c "import site; print(site.getsitepackages()[0])")
+echo "$TORCH_PATH" > "$CONDA_SITE_PACKAGES/system-pytorch.pth"
+echo "✓ Created .pth file in conda site-packages: $CONDA_SITE_PACKAGES/system-pytorch.pth"
+
+# Verify pip can see torch now
+if pip list | grep -q "torch"; then
+    echo "✓ Pip recognizes system PyTorch - will not reinstall"
+else
+    echo "WARNING: Pip may still try to install PyTorch (this is expected, but wasteful)"
+fi
+
+# Now install LeRobot with SmolVLA dependencies
+echo ""
+echo "Installing LeRobot with SmolVLA dependencies..."
+echo "This may take 10-15 minutes depending on network speed..."
 
 pip install --no-cache-dir -e ".[smolvla]"
 
@@ -132,10 +376,10 @@ echo ""
 echo "LeRobot installation completed."
 
 # ============================================================================
-# Step 9: Verify Installation
+# Step 11: Verify Installation
 # ============================================================================
 echo ""
-echo "Step 9: Verifying installation..."
+echo "Step 11: Verifying installation..."
 
 echo "Checking LeRobot..."
 python -c "import lerobot; print(f'LeRobot version: {lerobot.__version__}')" || echo "WARNING: LeRobot import failed"
@@ -150,22 +394,47 @@ python -c "import num2words; print('Num2words: OK')" || echo "WARNING: Num2words
 
 echo ""
 echo "Checking training script..."
-lerobot-train --help | head -5 || echo "WARNING: lerobot-train command not found"
+# Check if command exists and can be invoked
+# Note: Broken pipe error (Errno 32) when piping to head is expected and harmless
+if command -v lerobot-train >/dev/null 2>&1; then
+    # Run help command, suppressing broken pipe error (normal when head closes early)
+    lerobot-train --help 2>&1 | head -5 >/dev/null 2>&1 || true
+    echo "✓ lerobot-train command is available"
+else
+    echo "WARNING: lerobot-train command not found"
+fi
 
 echo ""
 echo "Checking GPU access..."
 python -c "import torch; print(f'CUDA available: {torch.cuda.is_available()}'); print(f'GPU count: {torch.cuda.device_count()}'); print(f'GPU name: {torch.cuda.get_device_name(0) if torch.cuda.is_available() else \"N/A\"}')"
 
 # ============================================================================
-# Step 10: Create Activation Script
+# Step 12: Update Activation Script
 # ============================================================================
 echo ""
-echo "Step 10: Creating activation script..."
+echo "Step 12: Updating activation script with detected paths..."
 
-cat > /workspace/activate_env.sh << 'EOF'
+# Get the repository directory (where this script is located)
+REPO_DIR=$(cd "$(dirname "$0")" && pwd)
+
+# Find PyTorch path for activation script
+ACTIVATION_TORCH_PATH=""
+if python3 -c "import torch" 2>/dev/null; then
+    ACTIVATION_TORCH_PATH=$(python3 -c "import torch; import os; print(os.path.dirname(os.path.dirname(torch.__file__)))" 2>/dev/null)
+elif /usr/bin/python3 -c "import torch" 2>/dev/null; then
+    ACTIVATION_TORCH_PATH=$(/usr/bin/python3 -c "import torch; import os; print(os.path.dirname(os.path.dirname(torch.__file__)))" 2>/dev/null)
+fi
+
+# Update activate_env.sh in the repository
+ACTIVATE_SCRIPT="$REPO_DIR/activate_env.sh"
+if [ -f "$ACTIVATE_SCRIPT" ]; then
+    echo "Updating existing activate_env.sh with detected paths..."
+    
+    # Update the script with detected paths
+    cat > "$ACTIVATE_SCRIPT" << EOF
 #!/bin/bash
 # Activation script for RunPod LeRobot environment
-# Run this script after pod restart: source /workspace/activate_env.sh
+# Run this script after pod restart: source activate_env.sh
 
 # Activate conda
 source /workspace/miniconda3/etc/profile.d/conda.sh
@@ -181,35 +450,54 @@ export TORCH_HOME=/workspace/.cache/torch
 export TRITON_CACHE_DIR=/workspace/.cache/triton
 export CUDA_VISIBLE_DEVICES=0
 
+# Add system PyTorch to PYTHONPATH if found
+if [ -n "${ACTIVATION_TORCH_PATH}" ] && [ -d "${ACTIVATION_TORCH_PATH}" ]; then
+    export PYTHONPATH="${ACTIVATION_TORCH_PATH}:\$PYTHONPATH"
+fi
+
 # Navigate to project directory
-cd /workspace/Grievous
+cd "${REPO_DIR}"
 
 echo "=========================================="
 echo "Environment activated successfully!"
 echo "=========================================="
 echo "  Conda env: grievous"
-echo "  Python: $(python --version)"
-echo "  PyTorch: $(python -c 'import torch; print(torch.__version__)')"
-echo "  CUDA available: $(python -c 'import torch; print(torch.cuda.is_available())')"
-echo "  Working directory: $(pwd)"
+echo "  Python: \$(python --version)"
+echo "  PyTorch: \$(python -c 'import torch; print(torch.__version__)' 2>/dev/null || echo 'Not found')"
+echo "  CUDA available: \$(python -c 'import torch; print(torch.cuda.is_available())' 2>/dev/null || echo 'N/A')"
+echo "  Working directory: \$(pwd)"
 echo "=========================================="
 EOF
-
-chmod +x /workspace/activate_env.sh
-echo "Activation script created at /workspace/activate_env.sh"
+    
+    chmod +x "$ACTIVATE_SCRIPT"
+    echo "Activation script updated at $ACTIVATE_SCRIPT"
+else
+    echo "WARNING: activate_env.sh not found in repository at $ACTIVATE_SCRIPT"
+    echo "You may need to create it manually or it will be created on first setup."
+fi
 
 # ============================================================================
-# Step 11: Make Training Script Executable
+# Step 13: Make Training Script Executable
 # ============================================================================
 echo ""
-echo "Step 11: Making training script executable..."
+echo "Step 13: Making training script executable..."
 
-if [ -f "/workspace/Grievous/train_grievous.sh" ]; then
-    chmod +x /workspace/Grievous/train_grievous.sh
+# Get the repository directory (where this script is located)
+REPO_DIR=$(cd "$(dirname "$0")" && pwd)
+
+if [ -f "$REPO_DIR/train_grievous.sh" ]; then
+    chmod +x "$REPO_DIR/train_grievous.sh"
     echo "Training script is now executable."
 else
-    echo "WARNING: train_grievous.sh not found at /workspace/Grievous/train_grievous.sh"
+    echo "WARNING: train_grievous.sh not found at $REPO_DIR/train_grievous.sh"
 fi
+
+# ============================================================================
+# Step 14: Final Cleanup
+# ============================================================================
+echo ""
+echo "Step 14: Performing final cleanup to free up space..."
+cleanup_storage
 
 # ============================================================================
 # Summary
@@ -227,10 +515,10 @@ echo "2. Authenticate with WandB:"
 echo "   wandb login"
 echo ""
 echo "3. After pod restart, activate environment:"
-echo "   source /workspace/activate_env.sh"
+echo "   source activate_env.sh"
 echo ""
 echo "4. Run training:"
-echo "   cd /workspace/Grievous"
+echo "   cd $REPO_DIR"
 echo "   ./train_grievous.sh"
 echo ""
 echo "=========================================="
