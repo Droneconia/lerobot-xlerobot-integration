@@ -34,9 +34,9 @@ except ImportError:
 try:
     import pyaudio
     PYAudio_AVAILABLE = True
-except ImportError:
+except ImportError as e:
     PYAudio_AVAILABLE = False
-    logging.warning("pyaudio not available. Voice commands will not work.")
+    logging.warning(f"pyaudio not available. Voice commands will not work. Error: {e}")
 
 try:
     from vosk import Model, KaldiRecognizer
@@ -174,7 +174,7 @@ class VoiceCommandStateMachine:
         # Activation phrase system
         self.is_activated = False  # Whether system is listening for commands
         self.activation_expiry = 0.0  # Timestamp when activation expires
-        self.activation_window = 10.0  # Seconds to listen after activation
+        self.activation_window = 20.0  # Seconds to listen after activation
         
         # State-specific data
         self.state_data: dict[str, Any] = {}
@@ -208,6 +208,42 @@ class VoiceCommandStateMachine:
                 return i
         
         logger.warning(f"No USB microphone found with keyword '{device_name_keyword}'. Using default input device.")
+        return None
+    
+    def _get_compatible_sample_rate(self, pyaudio_instance, device_index, preferred_rate=16000):
+        """Find a compatible sample rate for the audio device.
+        
+        Args:
+            pyaudio_instance: PyAudio instance
+            device_index: Device index (None for default)
+            preferred_rate: Preferred sample rate (default: 16000)
+            
+        Returns:
+            Compatible sample rate, or None if none found
+        """
+        # Common sample rates to try (prefer 16000 for Vosk, but try others)
+        sample_rates = [preferred_rate, 44100, 48000, 22050, 24000, 8000, 11025, 12000]
+        
+        for rate in sample_rates:
+            try:
+                # Test if the sample rate is supported by trying to open a stream
+                test_stream = pyaudio_instance.open(
+                    format=pyaudio.paInt16,
+                    channels=1,
+                    rate=rate,
+                    input=True,
+                    input_device_index=device_index,
+                    frames_per_buffer=self.chunk_size,
+                )
+                test_stream.stop_stream()
+                test_stream.close()
+                logger.info(f"Device supports sample rate: {rate} Hz")
+                return rate
+            except Exception as e:
+                logger.debug(f"Sample rate {rate} Hz not supported: {e}")
+                continue
+        
+        logger.error("No compatible sample rate found for the audio device")
         return None
     
     def _calculate_peak_level(self, audio_data, sample_width=2):
@@ -248,18 +284,29 @@ class VoiceCommandStateMachine:
             if not model_path.exists():
                 raise FileNotFoundError(f"Vosk model not found at {model_path}")
             
-            logger.info(f"Loading Vosk model from {model_path}")
-            self.model = Model(str(model_path))
-            self.recognizer = KaldiRecognizer(self.model, self.sample_rate)
-            self.recognizer.SetWords(True)
-            
-            # Initialize PyAudio
+            # Initialize PyAudio first to check device capabilities
             self.audio = pyaudio.PyAudio()
             
             # Find USB microphone
             device_index = self._find_usb_microphone(self.audio)
             
-            # Open audio stream
+            # Find a compatible sample rate for the device
+            compatible_rate = self._get_compatible_sample_rate(self.audio, device_index, self.sample_rate)
+            if compatible_rate is None:
+                raise RuntimeError("Could not find a compatible sample rate for the audio device")
+            
+            # Update sample rate if it changed
+            if compatible_rate != self.sample_rate:
+                logger.info(f"Using sample rate {compatible_rate} Hz instead of {self.sample_rate} Hz (device compatibility)")
+                self.sample_rate = compatible_rate
+            
+            # Load Vosk model with the actual sample rate
+            logger.info(f"Loading Vosk model from {model_path}")
+            self.model = Model(str(model_path))
+            self.recognizer = KaldiRecognizer(self.model, self.sample_rate)
+            self.recognizer.SetWords(True)
+            
+            # Open audio stream with the compatible sample rate
             self.audio_stream = self.audio.open(
                 format=pyaudio.paInt16,
                 channels=1,
@@ -269,11 +316,16 @@ class VoiceCommandStateMachine:
                 frames_per_buffer=self.chunk_size,
             )
             
-            logger.info("Voice recognition initialized successfully")
+            logger.info(f"Voice recognition initialized successfully with sample rate {self.sample_rate} Hz")
         except Exception as e:
             logger.error(f"Failed to initialize voice recognition: {e}")
             self.model = None
             self.recognizer = None
+            if hasattr(self, 'audio') and self.audio:
+                try:
+                    self.audio.terminate()
+                except:
+                    pass
     
     def _listen_for_commands(self):
         """Background thread that continuously listens for voice commands."""
@@ -396,7 +448,7 @@ class VoiceCommandStateMachine:
         else:
             # Fuzzy matching for partial commands
             for cmd_key, target_mode in self.CONTROL_COMMANDS.items():
-                if cmd_key in command or command in cmd_key:
+                if cmd_key in command:
                     control_mode = target_mode
                     break
         
@@ -406,7 +458,7 @@ class VoiceCommandStateMachine:
         else:
             # Fuzzy matching for partial commands
             for cmd_key, target_mode in self.RECORDING_COMMANDS.items():
-                if cmd_key in command or command in cmd_key:
+                if cmd_key in command:
                     recording_mode = target_mode
                     break
         
