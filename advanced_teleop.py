@@ -74,7 +74,7 @@ class TeleopControlThread:
         self,
         robot: "Grievous",
         teleop_action_processor,
-        robot_action_processor,
+        action_processor,
         control_mode_getter,  # Function to get current control mode
         freq_hz: int = 120,
         motor_bus_lock: threading.Lock | None = None,
@@ -84,21 +84,21 @@ class TeleopControlThread:
         Args:
             robot: Grievous robot instance
             teleop_action_processor: Processor for teleop actions
-            robot_action_processor: Processor for robot actions
+            action_processor: Processor for robot actions
             control_mode_getter: Function that returns current ControlMode
             freq_hz: Refresh rate for teleop control loop
             motor_bus_lock: Shared lock for serializing motor bus access
         """
         self.robot = robot
         self.teleop_action_processor = teleop_action_processor
-        self.robot_action_processor = robot_action_processor
+        self.action_processor = action_processor
         self.control_mode_getter = control_mode_getter
         self.freq_hz = freq_hz
         self.motor_bus_lock = motor_bus_lock
         
         # Thread-safe storage for last action
         self._lock = threading.Lock()
-        self._last_robot_action: dict = {}
+        self._last_action: dict = {}
         self._running = False
         self._thread: threading.Thread | None = None
         
@@ -143,19 +143,15 @@ class TeleopControlThread:
                 # Get action from leader arms (doesn't use motor bus)
                 action = self.robot.get_action()
                 
-                # Process actions through pipelines (no observation needed)
-                teleop_action = self.teleop_action_processor((action, None))
-                robot_action = self.robot_action_processor((teleop_action, None))
-                
                 # Validate action
                 action_valid = True
-                if robot_action is None:
+                if action is None:
                     logger.warning("Received None action, skipping send")
                     action_valid = False
-                elif not isinstance(robot_action, dict):
-                    logger.error(f"Invalid action type: {type(robot_action)}, expected dict. Skipping send.")
+                elif not isinstance(action, dict):
+                    logger.error(f"Invalid action type: {type(action)}, expected dict. Skipping send.")
                     action_valid = False
-                elif not robot_action:
+                elif not action:
                     logger.warning("Received empty action dict, skipping send")
                     action_valid = False
                 
@@ -166,17 +162,17 @@ class TeleopControlThread:
                     # Send action to follower (uses motor bus - must be serialized)
                     if self.motor_bus_lock:
                         with self.motor_bus_lock:
-                            self.robot.send_action(robot_action)
+                            self.robot.send_action(action)
                     else:
-                        self.robot.send_action(robot_action)
+                        self.robot.send_action(action)
                     
                     # Update thread-safe storage
                     with self._lock:
-                        self._last_robot_action = robot_action
+                        self._last_action = action
                 elif action_valid:
                     # Action is valid but not in ARM_TELEOP mode - still update storage but don't send
                     with self._lock:
-                        self._last_robot_action = robot_action
+                        self._last_action = action
                 else:
                     logger.warning("Invalid action, skipping send")
                 
@@ -226,7 +222,7 @@ class TeleopControlThread:
             Dictionary containing the last robot action
         """
         with self._lock:
-            return self._last_robot_action.copy()
+            return self._last_action.copy()
 
 
 class VoiceCommandStateMachine:
@@ -304,7 +300,7 @@ class VoiceCommandStateMachine:
         self.robot = None
         self.robot_initialized = False
         self.teleop_action_processor = None
-        self.robot_action_processor = None
+        self.action_processor = None
         self.control_loop_fps = 120  # Control loop frequency (Hz)
         self.control_thread: TeleopControlThread | None = None
         
@@ -496,14 +492,14 @@ class VoiceCommandStateMachine:
             logger.info("Grievous connected successfully")
             
             logger.info("Initializing processors...")
-            self.teleop_action_processor, self.robot_action_processor, _ = make_default_processors()
+            self.teleop_action_processor, self.action_processor, _ = make_default_processors()
             logger.info("Processors initialized")
             
             # Create and start control thread
             self.control_thread = TeleopControlThread(
                 robot=self.robot,
                 teleop_action_processor=self.teleop_action_processor,
-                robot_action_processor=self.robot_action_processor,
+                action_processor=self.action_processor,
                 control_mode_getter=lambda: self.control_mode,
                 freq_hz=self.control_loop_fps,
                 motor_bus_lock=None,  # Can add motor bus lock if needed
