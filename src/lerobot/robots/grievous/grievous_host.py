@@ -389,6 +389,7 @@ def main():
             step_times["get_action_from_thread"] = (time.perf_counter() - step_start) * 1000  # ms
 
             if robot_action:
+                #placeholder until head control is implemented
                 robot_action["head_motor_1.pos"] = last_observation.get("head_motor_1.pos", 0.0)
                 robot_action["head_motor_2.pos"] = last_observation.get("head_motor_2.pos", 0.0)
             
