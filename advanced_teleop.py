@@ -173,6 +173,9 @@ class TeleopControlThread:
                         if action_valid and current_control_mode == ControlMode.ARM_TELEOP:
                             # Send action to follower (uses motor bus - must be serialized)
                             self.robot.send_action(action)
+                        elif action_valid and current_control_mode == ControlMode.BASE_TELEOP:
+                            #ADD CODE TO PROCESS AND SEND BASE/HEAD ACTIONS
+                            pass
                 else:
                     action = self.robot.get_action()
                     
@@ -209,10 +212,7 @@ class TeleopControlThread:
             if sleep_time > 0:
                 time.sleep(sleep_time)
             
-            # Collect timing data
-            total_loop_time = (time.perf_counter() - loop_start) * 1000  # ms
-            loop_frequency = 1000.0 / total_loop_time if total_loop_time > 0 else 0  # Hz
-            
+            # Collect timing data for leader arm position logging
             with self._timing_lock:
                 current_time = time.perf_counter()
                 
@@ -220,24 +220,47 @@ class TeleopControlThread:
                 if self._timing_data_start_time is None:
                     self._timing_data_start_time = current_time
                 
-                # Store loop frequency
-                self._loop_times.append(loop_frequency)
-                
-                # Print frequency stats every second
-                if current_time - self._last_print_time >= 1.0:
-                    if self._loop_times:
-                        loop_count = len(self._loop_times)
-                        actual_time_span = current_time - self._timing_data_start_time
-                        min_freq = min(self._loop_times)
-                        max_freq = max(self._loop_times)
-                        overall_freq = loop_count / actual_time_span if actual_time_span > 0 else 0
+                # Log leader arm positions every 5 seconds (from latest stored action)
+                if current_time - self._last_print_time >= 5.0:
+                    try:
+                        # Get latest stored action (thread-safe)
+                        with self._lock:
+                            latest_action = self._last_action.copy()
                         
-                        print(f"TeleopControlThread - Loops: {loop_count} | Overall Freq: {overall_freq:.1f}Hz | Min: {min_freq:.1f}Hz | Max: {max_freq:.1f}Hz")
+                        # Extract only specific leader arm positions from action
+                        selected_keys = [
+                            "left_arm_shoulder_pan.pos",
+                            "left_arm_wrist_flex.pos",
+                            "left_arm_gripper.pos",
+                            "right_arm_shoulder_pan.pos",
+                            "right_arm_wrist_flex.pos",
+                        ]
+                        leader_positions = {key: latest_action.get(key) for key in selected_keys if key in latest_action}
+                        
+                        if leader_positions:
+                            logger.info(f"Leader Arm Positions (from action): {leader_positions}")
+                    except Exception as e:
+                        logger.error(f"Failed to get leader arm positions from action: {e}")
                     
                     # Reset timing data
-                    self._loop_times.clear()
                     self._timing_data_start_time = None
                     self._last_print_time = current_time
+                
+                # Commented out frequency logging
+                # total_loop_time = (time.perf_counter() - loop_start) * 1000  # ms
+                # loop_frequency = 1000.0 / total_loop_time if total_loop_time > 0 else 0  # Hz
+                # self._loop_times.append(loop_frequency)
+                # if current_time - self._last_print_time >= 1.0:
+                #     if self._loop_times:
+                #         loop_count = len(self._loop_times)
+                #         actual_time_span = current_time - self._timing_data_start_time
+                #         min_freq = min(self._loop_times)
+                #         max_freq = max(self._loop_times)
+                #         overall_freq = loop_count / actual_time_span if actual_time_span > 0 else 0
+                #         print(f"TeleopControlThread - Loops: {loop_count} | Overall Freq: {overall_freq:.1f}Hz | Min: {min_freq:.1f}Hz | Max: {max_freq:.1f}Hz")
+                #     self._loop_times.clear()
+                #     self._timing_data_start_time = None
+                #     self._last_print_time = current_time
     
     def get_last_action(self) -> dict:
         """Get the last processed robot action (thread-safe).
@@ -401,35 +424,35 @@ class RecordingThread:
             if sleep_time > 0:
                 time.sleep(sleep_time)
             
-            # Collect timing data
-            total_loop_time = (time.perf_counter() - loop_start) * 1000  # ms
-            loop_frequency = 1000.0 / total_loop_time if total_loop_time > 0 else 0  # Hz
-            
-            with self._timing_lock:
-                current_time = time.perf_counter()
-                
-                # Track when timing data collection started
-                if self._timing_data_start_time is None:
-                    self._timing_data_start_time = current_time
-                
-                # Store loop frequency
-                self._loop_times.append(loop_frequency)
-                
-                # Print frequency stats every second
-                if current_time - self._last_print_time >= 1.0:
-                    if self._loop_times:
-                        loop_count = len(self._loop_times)
-                        actual_time_span = current_time - self._timing_data_start_time
-                        min_freq = min(self._loop_times)
-                        max_freq = max(self._loop_times)
-                        overall_freq = loop_count / actual_time_span if actual_time_span > 0 else 0
-                        
-                        print(f"RecordingThread - Loops: {loop_count} | Overall Freq: {overall_freq:.1f}Hz | Min: {min_freq:.1f}Hz | Max: {max_freq:.1f}Hz")
-                    
-                    # Reset timing data
-                    self._loop_times.clear()
-                    self._timing_data_start_time = None
-                    self._last_print_time = current_time
+            # Commented out frequency logging
+            # total_loop_time = (time.perf_counter() - loop_start) * 1000  # ms
+            # loop_frequency = 1000.0 / total_loop_time if total_loop_time > 0 else 0  # Hz
+            # 
+            # with self._timing_lock:
+            #     current_time = time.perf_counter()
+            #     
+            #     # Track when timing data collection started
+            #     if self._timing_data_start_time is None:
+            #         self._timing_data_start_time = current_time
+            #     
+            #     # Store loop frequency
+            #     self._loop_times.append(loop_frequency)
+            #     
+            #     # Print frequency stats every second
+            #     if current_time - self._last_print_time >= 1.0:
+            #         if self._loop_times:
+            #             loop_count = len(self._loop_times)
+            #             actual_time_span = current_time - self._timing_data_start_time
+            #             min_freq = min(self._loop_times)
+            #             max_freq = max(self._loop_times)
+            #             overall_freq = loop_count / actual_time_span if actual_time_span > 0 else 0
+            #             
+            #             print(f"RecordingThread - Loops: {loop_count} | Overall Freq: {overall_freq:.1f}Hz | Min: {min_freq:.1f}Hz | Max: {max_freq:.1f}Hz")
+            #         
+            #         # Reset timing data
+            #         self._loop_times.clear()
+            #         self._timing_data_start_time = None
+            #         self._last_print_time = current_time
 
 
 class VoiceCommandStateMachine:
