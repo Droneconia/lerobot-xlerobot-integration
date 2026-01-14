@@ -4,6 +4,53 @@ Quick reference for running Grievous in different modes.
 
 ---
 
+## 0. Teleop with Visualization (No Recording)
+
+**Use when:** You want to teleoperate the robot and see camera feeds in Rerun on your laptop without recording data
+
+### On RPi5:
+```bash
+cd ~/Code/lerobot-xlerobot-integration
+conda activate grievous
+python -m lerobot.robots.grievous.grievous_host
+```
+
+### On Laptop:
+```bash
+cd /path/to/lerobot-xlerobot-integration
+conda activate grievous
+
+lerobot-record \
+    --robot.type=grievous_client \
+    --robot.remote_ip=192.168.50.148 \
+    --robot.cameras='{
+        left_wrist: {type: opencv, index_or_path: /dev/video6, width: 640, height: 480, fps: 30},
+        right_wrist: {type: opencv, index_or_path: /dev/video8, width: 640, height: 480, fps: 30},
+        head: {type: intelrealsense, serial_number_or_name: 032622074046, width: 640, height: 480, fps: 30}
+    }' \
+    --teleop.type=grievous_leader \
+    --teleop.left_arm_port=/dev/ttyACM3 \
+    --teleop.right_arm_port=/dev/ttyACM2 \
+    --teleop.remote_ip=192.168.50.148 \
+    --teleop.port_zmq_cmd=5555 \
+    --teleop.id=grievous_leader \
+    --dataset.repo_id="Grievous-Robot/temp-teleop-v1" \
+    --dataset.num_episodes=1 \
+    --dataset.single_task="Teleoperation test" \
+    --dataset.episode_time_s=600 \
+    --dataset.reset_time_s=5 \
+    --dataset.push_to_hub=false \
+    --display_data=true
+```
+
+**Tips:**
+- Rerun visualization opens automatically on your laptop showing camera feeds and robot state
+- Press `Esc` to exit teleoperation at any time
+- Data is saved locally but not pushed to hub (you can delete it later)
+- Use arrow keys: `→` to end gracefully, `←` to discard, `Esc` to exit
+
+---
+
 ## 1. Recording Mode (with Teleoperation)
 
 ### On RPi5:

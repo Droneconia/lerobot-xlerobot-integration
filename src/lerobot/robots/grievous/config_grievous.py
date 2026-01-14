@@ -45,7 +45,7 @@ def grievous_cameras_config() -> dict[str, CameraConfig]:
             fps=30,
             width=640,
             height=480,
-            color_mode=ColorMode.BGR,
+            color_mode=ColorMode.RGB,
             rotation=Cv2Rotation.NO_ROTATION,
             use_depth=False  # Disabled - conflicts with other video devices
         ),
@@ -116,7 +116,8 @@ class GrievousHostConfig:
     # Runtime configuration
     connection_time_s: int = 3600  # Max runtime before auto-shutdown
     watchdog_timeout_ms: int = 500  # Stop robot if no commands received
-    max_loop_freq_hz: int = 60  # Control loop frequency
+    max_loop_freq_hz: int = 30  # Control loop frequency
+    teleop_freq_hz: int = 120  # Teleop control thread frequency (higher rate for smoother control)
     dry_run: bool = False  # If True, log actions but don't send to robot (safe testing)
 
 
