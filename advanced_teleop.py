@@ -8,10 +8,18 @@ and processes commands when activated. Manages control and recording states inde
 import json
 import logging
 import queue
+import sys
 import threading
 import time
 from enum import Enum
 from pathlib import Path
+
+# Add src to path for imports
+sys.path.insert(0, str(Path(__file__).parent / "src"))
+
+from lerobot.processor import make_default_processors
+from lerobot.robots.grievous import Grievous
+from lerobot.robots.grievous.config_grievous import GrievousConfig
 
 try:
     import numpy as np
@@ -48,6 +56,177 @@ class ControlMode(Enum):
 class RecordingMode(Enum):
     NOT_RECORDING = "not_recording"
     RECORDING = "recording"
+
+
+class TeleopControlThread:
+    """Separate thread for teleop control that runs at higher refresh rate.
+    
+    This thread continuously:
+    1. Gets actions from leader arms
+    2. Processes actions through processor pipelines
+    3. Sends actions to follower (XLerobot) only when in ARM_TELEOP mode
+    
+    The thread runs all processing steps regardless of mode, but only sends
+    actions when control_mode is ARM_TELEOP.
+    """
+    
+    def __init__(
+        self,
+        robot: "Grievous",
+        teleop_action_processor,
+        robot_action_processor,
+        control_mode_getter,  # Function to get current control mode
+        freq_hz: int = 120,
+        motor_bus_lock: threading.Lock | None = None,
+    ):
+        """Initialize teleop control thread.
+        
+        Args:
+            robot: Grievous robot instance
+            teleop_action_processor: Processor for teleop actions
+            robot_action_processor: Processor for robot actions
+            control_mode_getter: Function that returns current ControlMode
+            freq_hz: Refresh rate for teleop control loop
+            motor_bus_lock: Shared lock for serializing motor bus access
+        """
+        self.robot = robot
+        self.teleop_action_processor = teleop_action_processor
+        self.robot_action_processor = robot_action_processor
+        self.control_mode_getter = control_mode_getter
+        self.freq_hz = freq_hz
+        self.motor_bus_lock = motor_bus_lock
+        
+        # Thread-safe storage for last action
+        self._lock = threading.Lock()
+        self._last_robot_action: dict = {}
+        self._running = False
+        self._thread: threading.Thread | None = None
+        
+        # Timing collection for periodic reporting
+        self._timing_lock = threading.Lock()
+        self._loop_times: list[float] = []  # Store loop times to calculate frequencies
+        self._last_print_time = time.perf_counter()
+        self._timing_data_start_time: float | None = None
+    
+    def start(self) -> None:
+        """Start the teleop control thread."""
+        if self._running:
+            logger.warning("Teleop control thread is already running")
+            return
+        
+        self._running = True
+        self._thread = threading.Thread(target=self._control_loop, daemon=True)
+        self._thread.start()
+        logger.info(f"Teleop control thread started at {self.freq_hz}Hz")
+    
+    def stop(self) -> None:
+        """Stop the teleop control thread."""
+        if not self._running:
+            return
+        
+        self._running = False
+        if self._thread:
+            self._thread.join(timeout=5.0)
+            if self._thread.is_alive():
+                logger.warning("Teleop control thread did not stop gracefully")
+            else:
+                logger.info("Teleop control thread stopped")
+    
+    def _control_loop(self) -> None:
+        """Main control loop running in separate thread."""
+        while self._running:
+            loop_start = time.perf_counter()
+            
+            # Time the control operations
+            control_start = time.perf_counter()
+            try:
+                # Get action from leader arms (doesn't use motor bus)
+                action = self.robot.get_action()
+                
+                # Process actions through pipelines (no observation needed)
+                teleop_action = self.teleop_action_processor((action, None))
+                robot_action = self.robot_action_processor((teleop_action, None))
+                
+                # Validate action
+                action_valid = True
+                if robot_action is None:
+                    logger.warning("Received None action, skipping send")
+                    action_valid = False
+                elif not isinstance(robot_action, dict):
+                    logger.error(f"Invalid action type: {type(robot_action)}, expected dict. Skipping send.")
+                    action_valid = False
+                elif not robot_action:
+                    logger.warning("Received empty action dict, skipping send")
+                    action_valid = False
+                
+                # Only send action to follower if in ARM_TELEOP mode
+                # Thread runs all processing regardless of mode, but skips sending in other modes
+                current_control_mode = self.control_mode_getter()
+                if action_valid and current_control_mode == ControlMode.ARM_TELEOP:
+                    # Send action to follower (uses motor bus - must be serialized)
+                    if self.motor_bus_lock:
+                        with self.motor_bus_lock:
+                            self.robot.send_action(robot_action)
+                    else:
+                        self.robot.send_action(robot_action)
+                    
+                    # Update thread-safe storage
+                    with self._lock:
+                        self._last_robot_action = robot_action
+                elif action_valid:
+                    # Action is valid but not in ARM_TELEOP mode - still update storage but don't send
+                    with self._lock:
+                        self._last_robot_action = robot_action
+                else:
+                    logger.warning("Invalid action, skipping send")
+                
+            except Exception as e:
+                logger.error(f"Error in teleop control loop: {e}", exc_info=True)
+            
+            # Rate limiting - sleep at the end to reach desired frequency
+            elapsed = time.perf_counter() - loop_start
+            sleep_time = max(1 / self.freq_hz - elapsed, 0)
+            if sleep_time > 0:
+                time.sleep(sleep_time)
+            
+            # Collect timing data
+            total_loop_time = (time.perf_counter() - loop_start) * 1000  # ms
+            loop_frequency = 1000.0 / total_loop_time if total_loop_time > 0 else 0  # Hz
+            
+            with self._timing_lock:
+                current_time = time.perf_counter()
+                
+                # Track when timing data collection started
+                if self._timing_data_start_time is None:
+                    self._timing_data_start_time = current_time
+                
+                # Store loop frequency
+                self._loop_times.append(loop_frequency)
+                
+                # Print frequency stats every second
+                if current_time - self._last_print_time >= 1.0:
+                    if self._loop_times:
+                        loop_count = len(self._loop_times)
+                        actual_time_span = current_time - self._timing_data_start_time
+                        min_freq = min(self._loop_times)
+                        max_freq = max(self._loop_times)
+                        overall_freq = loop_count / actual_time_span if actual_time_span > 0 else 0
+                        
+                        print(f"TeleopControlThread - Loops: {loop_count} | Overall Freq: {overall_freq:.1f}Hz | Min: {min_freq:.1f}Hz | Max: {max_freq:.1f}Hz")
+                    
+                    # Reset timing data
+                    self._loop_times.clear()
+                    self._timing_data_start_time = None
+                    self._last_print_time = current_time
+    
+    def get_last_action(self) -> dict:
+        """Get the last processed robot action (thread-safe).
+        
+        Returns:
+            Dictionary containing the last robot action
+        """
+        with self._lock:
+            return self._last_robot_action.copy()
 
 
 class VoiceCommandStateMachine:
@@ -120,6 +299,14 @@ class VoiceCommandStateMachine:
         self.is_activated = False
         self.activation_expiry = 0.0
         self.activation_window = 20.0
+        
+        # Robot control
+        self.robot = None
+        self.robot_initialized = False
+        self.teleop_action_processor = None
+        self.robot_action_processor = None
+        self.control_loop_fps = 120  # Control loop frequency (Hz)
+        self.control_thread: TeleopControlThread | None = None
         
         if VOSK_AVAILABLE and PYAudio_AVAILABLE:
             self._init_voice_recognition(model_path)
@@ -297,8 +484,46 @@ class VoiceCommandStateMachine:
         
         return control_mode, recording_mode
     
+    def _init_robot(self):
+        """Initialize and connect the Grievous robot (blocks until complete)."""
+        try:
+            logger.info("Configuring Grievous robot...")
+            robot_config = GrievousConfig(id="grievous_robot")
+            self.robot = Grievous(robot_config)
+            
+            logger.info("Connecting Grievous robot (using existing calibration)...")
+            self.robot.connect(calibrate=False)
+            logger.info("Grievous connected successfully")
+            
+            logger.info("Initializing processors...")
+            self.teleop_action_processor, self.robot_action_processor, _ = make_default_processors()
+            logger.info("Processors initialized")
+            
+            # Create and start control thread
+            self.control_thread = TeleopControlThread(
+                robot=self.robot,
+                teleop_action_processor=self.teleop_action_processor,
+                robot_action_processor=self.robot_action_processor,
+                control_mode_getter=lambda: self.control_mode,
+                freq_hz=self.control_loop_fps,
+                motor_bus_lock=None,  # Can add motor bus lock if needed
+            )
+            self.control_thread.start()
+            
+            self.robot_initialized = True
+            logger.info("Robot initialization complete - ready to accept commands")
+        except Exception as e:
+            logger.error(f"Failed to initialize robot: {e}")
+            self.robot = None
+            self.robot_initialized = False
+            raise
+    
     def process_commands(self):
         """Process pending voice commands from the queue."""
+        # Block commands until robot is initialized
+        if not self.robot_initialized:
+            return
+        
         self._check_activation_status()
         
         try:
@@ -330,11 +555,20 @@ class VoiceCommandStateMachine:
         """Shutdown the state machine."""
         logger.info("Shutting down...")
         self.stop_listening()
+        
+        # Stop control thread
+        if self.control_thread:
+            self.control_thread.stop()
+        
         if self.audio_stream:
             self.audio_stream.stop_stream()
             self.audio_stream.close()
         if self.audio:
             self.audio.terminate()
+        if self.robot:
+            logger.info("Disconnecting robot...")
+            self.robot.disconnect()
+            logger.info("Robot disconnected")
     
     def _output_status(self):
         """Output current state, peak level, and recognized text every second."""
@@ -370,6 +604,16 @@ class VoiceCommandStateMachine:
         """Run the main state machine loop."""
         logger.info("Starting voice-controlled state machine...")
         logger.info(f"Initial state - Control: {self.control_mode.value}, Recording: {self.recording_mode.value}")
+        
+        # Initialize robot at startup (blocks until complete)
+        logger.info("Initializing robot (this may take a moment)...")
+        try:
+            self._init_robot()
+        except Exception as e:
+            logger.error(f"Robot initialization failed: {e}")
+            logger.error("Cannot continue without robot. Exiting.")
+            return
+        
         logger.info("Say an activation phrase to enable commands.")
         
         if self.model and self.recognizer:
@@ -381,8 +625,15 @@ class VoiceCommandStateMachine:
             loop_time = 1.0 / fps
             while self.control_mode != ControlMode.SHUTDOWN:
                 loop_start = time.perf_counter()
+                
+                # Process voice commands (blocked until robot initialized)
                 self.process_commands()
+                
+                # Control loop runs in separate thread, no need to call it here
+                
+                # Output status (at lower frequency)
                 self._output_status()
+                
                 elapsed = time.perf_counter() - loop_start
                 sleep_time = max(0, loop_time - elapsed)
                 if sleep_time > 0:
