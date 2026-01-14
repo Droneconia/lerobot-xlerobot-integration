@@ -93,24 +93,44 @@ Total:              35-65ms    → Only 15-25 Hz actual
 - But we're trying to get observations at 60 Hz
 - Wasting 2× the camera bandwidth and encoding time
 
-## Next Steps for Optimization Discussion
+## Critical Path Analysis
 
-Before proposing solutions, key questions:
+**For local teleoperation, only two operations are required:**
+- `get_action()` - Read leader arm positions (USB serial read, ~2-5ms)
+- `send_action()` - Write to follower arms (USB serial write, ~2ms)
 
-1. **Do we need motor states at 200 Hz, or just the control loop?**
-   - Control loop (leader read → follower write) should be 200 Hz
-   - But do we need to READ follower motor states at 200 Hz?
-   - Or can follower state observation be at 30 Hz like cameras?
+**Everything else is for recording/monitoring, not control:**
+- Reading follower motor states - Only needed for dataset logging
+- Reading cameras - Only needed for dataset logging
+- JPEG encoding - Only needed for network transmission
+- ZMQ transmission - Only needed for remote laptop monitoring
 
-2. **What's the minimum change to achieve fast control?**
-   - Option A: Add `get_observation(include_cameras=False)` parameter
-   - Option B: Add separate `get_motor_states()` method
-   - Option C: Skip observations entirely in control loop
+**Verification from other implementations:**
+- `xlerobot_host.py` and `lekiwi_host.py` are **remote execution hosts** (receive actions via network)
+- They call `get_observation()` every loop because observations are their primary output
+- Our `grievous_host.py` is **local teleoperation** (leader arms on same machine)
+- We only need observations for recording, not for control
 
-3. **Where should camera encoding happen?**
-   - Keep in main loop but decimate to 30 Hz?
-   - Move to separate thread?
-   - Both?
+## Proposed Optimization (Minimal Changes)
 
-Let me know your thoughts on these questions and we can design the minimal-change solution.
+**Two-thread architecture:**
+
+**Thread 1: Control Loop (200 Hz target)**
+- `action = robot.get_action()` - Read leader arms
+- `robot.send_action(action)` - Write to follower
+- Total: ~5-8ms per iteration
+- NO observations, NO cameras, NO encoding
+
+**Thread 2: Recording Loop (30 Hz)**
+- `obs = robot.get_observation()` - Read follower state + cameras
+- Encode cameras to JPEG
+- Send via ZMQ to remote laptop
+- Total: ~35-50ms per iteration (acceptable at 30 Hz)
+
+**Implementation changes needed:**
+1. Move observation/encoding/network to separate thread
+2. Control thread runs independently
+3. No synchronization required - control thread never waits for observations
+
+**Result:** Control loop achieves 100-200 Hz for responsive teleoperation, while recording maintains 30 Hz for dataset quality.
 
