@@ -84,6 +84,7 @@ class TeleopControlThread:
         control_mode_getter,  # Function to get current control mode
         freq_hz: int = 120,
         motor_bus_lock: Optional[threading.Lock] = None,
+        recording_thread: Optional["RecordingThread"] = None,
     ):
         """Initialize teleop control thread.
         
@@ -94,6 +95,7 @@ class TeleopControlThread:
             control_mode_getter: Function that returns current ControlMode
             freq_hz: Refresh rate for teleop control loop
             motor_bus_lock: Shared lock for serializing motor bus access
+            recording_thread: RecordingThread instance to get observations from
         """
         self.robot = robot
         self.teleop_action_processor = teleop_action_processor
@@ -101,6 +103,7 @@ class TeleopControlThread:
         self.control_mode_getter = control_mode_getter
         self.freq_hz = freq_hz
         self.motor_bus_lock = motor_bus_lock
+        self.recording_thread = recording_thread
         
         # Thread-safe storage for last action
         self._lock = threading.Lock()
@@ -174,8 +177,58 @@ class TeleopControlThread:
                             # Send action to follower (uses motor bus - must be serialized)
                             self.robot.send_action(action)
                         elif action_valid and current_control_mode == ControlMode.BASE_TELEOP:
-                            #ADD CODE TO PROCESS AND SEND BASE/HEAD ACTIONS
-                            pass
+                            # Process and send base/head actions (keep arms stationary)
+                            # Get current observation from recording thread (not from motors)
+                            if self.recording_thread:
+                                observation = self.recording_thread.get_last_observation()
+                            else:
+                                # Fallback: get observation directly if recording thread not available
+                                observation = self.robot.get_observation()
+                            
+                            # Create base/head action: map leader arm positions to base/head control
+                            base_head_action = {}
+                            
+                            # Keep follower arms at current positions (stationary)
+                            for key in observation.keys():
+                                if (key.startswith("left_arm_") or key.startswith("right_arm_")) and key.endswith(".pos"):
+                                    base_head_action[key] = observation[key]
+                            
+                            # Map leader arm positions to base velocities
+                            # Use left leader arm for base control:
+                            # - wrist_flex -> x.vel (forward/backward)
+                            # - shoulder_pan -> y.vel (lateral)
+                            # - wrist_roll -> theta.vel (rotation)
+                            left_wrist_flex = action.get("left_arm_wrist_flex.pos", 0.0)
+                            left_shoulder_pan = action.get("left_arm_shoulder_pan.pos", 0.0)
+                            left_wrist_roll = action.get("left_arm_wrist_roll.pos", 0.0)
+                            
+                            # Scale and map to base velocities (normalize from -100 to 100 range to velocity)
+                            # Assuming leader arm positions are in normalized range [-100, 100]
+                            base_scale = 0.4  # Max base velocity in m/s
+                            base_head_action["x.vel"] = (left_wrist_flex / 100.0) * base_scale
+                            base_head_action["y.vel"] = (left_shoulder_pan / 100.0) * base_scale
+                            
+                            # Theta velocity in deg/s
+                            theta_scale = 60.0  # Max rotation speed in deg/s
+                            base_head_action["theta.vel"] = (left_wrist_roll / 100.0) * theta_scale
+                            
+                            # Map right leader arm positions to head control
+                            # - shoulder_pan -> head_motor_1.pos
+                            # - wrist_flex -> head_motor_2.pos
+                            right_shoulder_pan = action.get("right_arm_shoulder_pan.pos", 0.0)
+                            right_wrist_flex = action.get("right_arm_wrist_flex.pos", 0.0)
+                            
+                            # Get current head positions and add delta from leader arms
+                            current_head_1 = observation.get("head_motor_1.pos", 0.0)
+                            current_head_2 = observation.get("head_motor_2.pos", 0.0)
+                            
+                            # Map leader arm position to head position (relative control)
+                            head_scale = 1.0  # Scaling factor for head movement
+                            base_head_action["head_motor_1.pos"] = current_head_1 + (right_shoulder_pan / 100.0) * head_scale
+                            base_head_action["head_motor_2.pos"] = current_head_2 + (right_wrist_flex / 100.0) * head_scale
+                            
+                            # Send base/head action to robot
+                            self.robot.send_action(base_head_action)
                 else:
                     action = self.robot.get_action()
                     
@@ -195,6 +248,59 @@ class TeleopControlThread:
                     current_control_mode = self.control_mode_getter()
                     if action_valid and current_control_mode == ControlMode.ARM_TELEOP:
                         self.robot.send_action(action)
+                    elif action_valid and current_control_mode == ControlMode.BASE_TELEOP:
+                        # Process and send base/head actions (keep arms stationary)
+                        # Get current observation from recording thread (not from motors)
+                        if self.recording_thread:
+                            observation = self.recording_thread.get_last_observation()
+                        else:
+                            # Fallback: get observation directly if recording thread not available
+                            observation = self.robot.get_observation()
+                        
+                        # Create base/head action: map leader arm positions to base/head control
+                        base_head_action = {}
+                        
+                        # Keep follower arms at current positions (stationary)
+                        for key in observation.keys():
+                            if (key.startswith("left_arm_") or key.startswith("right_arm_")) and key.endswith(".pos"):
+                                base_head_action[key] = observation[key]
+                        
+                        # Map leader arm positions to base velocities
+                        # Use left leader arm for base control:
+                        # - wrist_flex -> x.vel (forward/backward)
+                        # - shoulder_pan -> y.vel (lateral)
+                        # - wrist_roll -> theta.vel (rotation)
+                        left_wrist_flex = action.get("left_arm_wrist_flex.pos", 0.0)
+                        left_shoulder_pan = action.get("left_arm_shoulder_pan.pos", 0.0)
+                        left_wrist_roll = action.get("left_arm_wrist_roll.pos", 0.0)
+                        
+                        # Scale and map to base velocities (normalize from -100 to 100 range to velocity)
+                        # Assuming leader arm positions are in normalized range [-100, 100]
+                        base_scale = 0.4  # Max base velocity in m/s
+                        base_head_action["x.vel"] = (left_wrist_flex / 100.0) * base_scale
+                        base_head_action["y.vel"] = (left_shoulder_pan / 100.0) * base_scale
+                        
+                        # Theta velocity in deg/s
+                        theta_scale = 60.0  # Max rotation speed in deg/s
+                        base_head_action["theta.vel"] = (left_wrist_roll / 100.0) * theta_scale
+                        
+                        # Map right leader arm positions to head control
+                        # - shoulder_pan -> head_motor_1.pos
+                        # - wrist_flex -> head_motor_2.pos
+                        right_shoulder_pan = action.get("right_arm_shoulder_pan.pos", 0.0)
+                        right_wrist_flex = action.get("right_arm_wrist_flex.pos", 0.0)
+                        
+                        # Get current head positions and add delta from leader arms
+                        current_head_1 = observation.get("head_motor_1.pos", 0.0)
+                        current_head_2 = observation.get("head_motor_2.pos", 0.0)
+                        
+                        # Map leader arm position to head position (relative control)
+                        head_scale = 1.0  # Scaling factor for head movement
+                        base_head_action["head_motor_1.pos"] = current_head_1 + (right_shoulder_pan / 100.0) * head_scale
+                        base_head_action["head_motor_2.pos"] = current_head_2 + (right_wrist_flex / 100.0) * head_scale
+                        
+                        # Send base/head action to robot
+                        self.robot.send_action(base_head_action)
                 
                 # Update thread-safe storage (outside lock to minimize lock time)
                 if action_valid:
@@ -231,14 +337,14 @@ class TeleopControlThread:
                         selected_keys = [
                             "left_arm_shoulder_pan.pos",
                             "left_arm_wrist_flex.pos",
-                            "left_arm_gripper.pos",
+                            "left_arm_wrist_roll.pos",
                             "right_arm_shoulder_pan.pos",
-                            "right_arm_wrist_flex.pos",
+                            "right_arm_wrist_roll.pos",
                         ]
                         leader_positions = {key: latest_action.get(key) for key in selected_keys if key in latest_action}
                         
                         if leader_positions:
-                            logger.info(f"Leader Arm Positions (from action): {leader_positions}")
+                            print(f"Leader Arm Positions (from action): {leader_positions}")
                     except Exception as e:
                         logger.error(f"Failed to get leader arm positions from action: {e}")
                     
@@ -316,6 +422,10 @@ class RecordingThread:
         self._running = False
         self._thread: threading.Thread | None = None
         
+        # Thread-safe storage for last observation
+        self._observation_lock = threading.Lock()
+        self._last_observation: dict = {}
+        
         # Timing collection for periodic reporting
         self._timing_lock = threading.Lock()
         self._loop_times: list[float] = []  # Store loop times to calculate frequencies
@@ -346,24 +456,39 @@ class RecordingThread:
             else:
                 logger.info("Recording thread stopped")
     
+    def get_last_observation(self) -> dict:
+        """Get the last robot observation (thread-safe).
+        
+        Returns:
+            Dictionary containing the last robot observation
+        """
+        with self._observation_lock:
+            return self._last_observation.copy()
+    
     def _recording_loop(self) -> None:
         """Main recording loop running in separate thread."""
         while self._running:
             loop_start = time.perf_counter()
             
             try:
+                # Always get observation (for use by other threads, not just when recording)
+                # Get observation from robot (uses motor bus - must be serialized)
+                if self.motor_bus_lock:
+                    with self.motor_bus_lock:
+                        observation = self.robot.get_observation()
+                else:
+                    observation = self.robot.get_observation()
+                
+                # Store observation (thread-safe)
+                if observation:
+                    with self._observation_lock:
+                        self._last_observation = observation.copy()
+                
                 # Check if we should send data (only when recording)
                 current_recording_mode = self.recording_mode_getter()
                 is_recording = current_recording_mode == RecordingMode.RECORDING
                 
                 if is_recording:
-                    # Get observation from robot (uses motor bus - must be serialized)
-                    if self.motor_bus_lock:
-                        with self.motor_bus_lock:
-                            observation = self.robot.get_observation()
-                    else:
-                        observation = self.robot.get_observation()
-                    
                     # Encode camera images to base64 for network transmission
                     if observation:
                         for cam_key in self.robot.xlerobot.cameras.keys():
@@ -749,7 +874,7 @@ class VoiceCommandStateMachine:
             self.teleop_action_processor, self.action_processor, _ = make_default_processors()
             logger.info("Processors initialized")
             
-            # Create and start control thread
+            # Create and start control thread (recording_thread will be set after creation)
             self.control_thread = TeleopControlThread(
                 robot=self.robot,
                 teleop_action_processor=self.teleop_action_processor,
@@ -757,6 +882,7 @@ class VoiceCommandStateMachine:
                 control_mode_getter=lambda: self.control_mode,
                 freq_hz=self.control_loop_fps,
                 motor_bus_lock=self.motor_bus_lock,  # Serialize motor bus access
+                recording_thread=None,  # Will be set after recording thread is created
             )
             self.control_thread.start()
             
@@ -771,6 +897,9 @@ class VoiceCommandStateMachine:
                 motor_bus_lock=self.motor_bus_lock,  # Serialize motor bus access
             )
             self.recording_thread.start()
+            
+            # Update control thread with recording thread reference
+            self.control_thread.recording_thread = self.recording_thread
             
             self.robot_initialized = True
             logger.info("Robot initialization complete - ready to accept commands")
