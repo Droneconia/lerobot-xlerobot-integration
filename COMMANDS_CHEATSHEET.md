@@ -383,3 +383,88 @@ python -m lerobot.robots.grievous.grievous_mock_inference_host --help
 python -m lerobot.scripts.test_remote_inference_latency --help
 ```
 
+---
+
+## 5. Training Mode - SmolVLA Fine-tuning (Grievous)
+
+**Use when:** You want to fine-tune SmolVLA on the Grievous dataset.
+
+**Important:** Pin the dataset revision explicitly to avoid accidentally training on stale cached metadata.
+
+### On RunPod
+
+```bash
+cd /workspace/Grievous
+conda activate grievous
+
+# (Recommended) Keep HF cache on the persistent volume so downloads/checkpoints survive restarts.
+export HF_HOME=/workspace/.cache/huggingface
+# export CUDA_VISIBLE_DEVICES=0
+
+# Set your parameters:
+export DATASET_REPO_ID="Grievous-Robot/min-dataset-v10"
+export DATASET_REVISION="main"  # IMPORTANT: pin revision explicitly
+export BASE_POLICY="lerobot/smolvla_base"
+export OUTPUT_DIR="/workspace/outputs/smolvla_grievous_finetune"
+export RUN_TAG="$(date +%Y%m%d_%H%M%S)"
+export JOB_NAME="smolvla_grievous_20k_${RUN_TAG}"
+export POLICY_REPO_ID="Grievous-Robot/smolvla_finetuned_20k"
+
+#add screen session
+screen -S training
+
+# Save stdout/stderr to a persistent log file in the repo root with name + date (so config + early prints aren't lost)
+export TRAIN_LOG_FILE="/workspace/Grievous/train_${JOB_NAME}.log"
+
+python -m lerobot.scripts.lerobot_train \
+  --policy.path="${BASE_POLICY}" \
+  --policy.device=cuda \
+  --policy.repo_id="${POLICY_REPO_ID}" \
+  --policy.push_to_hub=true \
+  --dataset.repo_id="${DATASET_REPO_ID}" \
+  --dataset.revision="${DATASET_REVISION}" \
+  --output_dir="${OUTPUT_DIR}" \
+  --job_name="${JOB_NAME}" \
+  --batch_size=64 \
+  --steps=20000 \
+  --num_workers=4 \
+  --save_freq=5000 \
+  --log_freq=100 \
+  --eval_freq=0 \
+  --wandb.enable=true \
+  --wandb.project="smolvla-finetuning" \
+  --rename_map='{"observation.images.left_wrist":"observation.images.camera1","observation.images.right_wrist":"observation.images.camera2","observation.images.head":"observation.images.camera3"}' \
+  --seed=1000 \
+  2>&1 | tee -a "${TRAIN_LOG_FILE}"
+```
+
+### On Local Machine
+
+```bash
+export DATASET_REPO_ID="Grievous-Robot/min-dataset-v10"
+export DATASET_REVISION="main"  # IMPORTANT: pin revision explicitly
+export BASE_POLICY="lerobot/smolvla_base"
+export RUN_TAG="$(date +%Y%m%d_%H%M%S)"
+export JOB_NAME="smolvla_grievous_20k_${RUN_TAG}"
+export POLICY_REPO_ID="Grievous-Robot/smolvla_finetuned_20k"
+
+
+python -m lerobot.scripts.lerobot_train \
+  --policy.path="${BASE_POLICY}" \
+  --policy.device=cuda \
+  --policy.repo_id="${POLICY_REPO_ID}" \
+  --policy.push_to_hub=true \
+  --dataset.repo_id="${DATASET_REPO_ID}" \
+  --dataset.revision="${DATASET_REVISION}" \
+  --job_name="${JOB_NAME}" \
+  --batch_size=64 \
+  --steps=20000 \
+  --num_workers=4 \
+  --save_freq=5000 \
+  --log_freq=100 \
+  --eval_freq=0 \
+  --wandb.enable=true \
+  --wandb.project="smolvla-finetuning" \
+  --rename_map='{"observation.images.left_wrist":"observation.images.camera1","observation.images.right_wrist":"observation.images.camera2","observation.images.head":"observation.images.camera3"}' \
+  --seed=1000 
+  ```
