@@ -202,15 +202,28 @@ class TeleopControlThread:
                             left_shoulder_pan = action.get("left_arm_shoulder_pan.pos", 0.0)
                             left_wrist_roll = action.get("left_arm_wrist_roll.pos", 0.0)
                             
+                            # Apply deadzone (20% of range, so ±20 on -100 to 100 scale)
+                            deadzone = 20.0
+                            
+                            def apply_deadzone(value, deadzone_val):
+                                """Apply deadzone to input value."""
+                                if abs(value) < deadzone_val:
+                                    return 0.0
+                                # Scale the value after removing deadzone
+                                if value > 0:
+                                    return (value - deadzone_val) / (100.0 - deadzone_val)
+                                else:
+                                    return (value + deadzone_val) / (100.0 - deadzone_val)
+                            
                             # Scale and map to base velocities (normalize from -100 to 100 range to velocity)
                             # Assuming leader arm positions are in normalized range [-100, 100]
                             base_scale = 0.4  # Max base velocity in m/s
-                            base_head_action["x.vel"] = (left_wrist_flex / 100.0) * base_scale
-                            base_head_action["y.vel"] = (left_shoulder_pan / 100.0) * base_scale
+                            base_head_action["x.vel"] = -apply_deadzone(left_wrist_flex, deadzone) * base_scale  # Reversed direction
+                            base_head_action["y.vel"] = -apply_deadzone(left_shoulder_pan, deadzone) * base_scale  # Reversed direction
                             
                             # Theta velocity in deg/s
                             theta_scale = 60.0  # Max rotation speed in deg/s
-                            base_head_action["theta.vel"] = (left_wrist_roll / 100.0) * theta_scale
+                            base_head_action["theta.vel"] = -apply_deadzone(left_wrist_roll, deadzone) * theta_scale
                             
                             # Map right leader arm positions to head control
                             # - shoulder_pan -> head_motor_1.pos
@@ -274,15 +287,28 @@ class TeleopControlThread:
                         left_shoulder_pan = action.get("left_arm_shoulder_pan.pos", 0.0)
                         left_wrist_roll = action.get("left_arm_wrist_roll.pos", 0.0)
                         
+                        # Apply deadzone (20% of range, so ±20 on -100 to 100 scale)
+                        deadzone = 20.0
+                        
+                        def apply_deadzone(value, deadzone_val):
+                            """Apply deadzone to input value."""
+                            if abs(value) < deadzone_val:
+                                return 0.0
+                            # Scale the value after removing deadzone
+                            if value > 0:
+                                return (value - deadzone_val) / (100.0 - deadzone_val)
+                            else:
+                                return (value + deadzone_val) / (100.0 - deadzone_val)
+                        
                         # Scale and map to base velocities (normalize from -100 to 100 range to velocity)
                         # Assuming leader arm positions are in normalized range [-100, 100]
                         base_scale = 0.4  # Max base velocity in m/s
-                        base_head_action["x.vel"] = (left_wrist_flex / 100.0) * base_scale
-                        base_head_action["y.vel"] = (left_shoulder_pan / 100.0) * base_scale
+                        base_head_action["x.vel"] = -apply_deadzone(left_wrist_flex, deadzone) * base_scale  # Reversed direction
+                        base_head_action["y.vel"] = -apply_deadzone(left_shoulder_pan, deadzone) * base_scale  # Reversed direction
                         
                         # Theta velocity in deg/s
                         theta_scale = 60.0  # Max rotation speed in deg/s
-                        base_head_action["theta.vel"] = (left_wrist_roll / 100.0) * theta_scale
+                        base_head_action["theta.vel"] = -apply_deadzone(left_wrist_roll, deadzone) * theta_scale
                         
                         # Map right leader arm positions to head control
                         # - shoulder_pan -> head_motor_1.pos
@@ -587,7 +613,7 @@ class VoiceCommandStateMachine:
         "hey grievous", "grievous on", "grievous start",
         "listen grievous", "grievous listen",
         "activate grievous", "grievous activate",
-        "wake up grievous", "grievous wake up", "grievous"
+        "wake up grievous", "grievous wake up", "grievous", "robot", "robin"
     ]
     
     CONTROL_COMMANDS = {
@@ -604,6 +630,8 @@ class VoiceCommandStateMachine:
         "begin arm teleop": ControlMode.ARM_TELEOP,
         "arm control": ControlMode.ARM_TELEOP,
         "base": ControlMode.BASE_TELEOP,
+        "bass": ControlMode.BASE_TELEOP,
+        "move": ControlMode.BASE_TELEOP,
         "base teleop": ControlMode.BASE_TELEOP,
         "start base teleop": ControlMode.BASE_TELEOP,
         "begin base teleop": ControlMode.BASE_TELEOP,
@@ -613,6 +641,7 @@ class VoiceCommandStateMachine:
         "start calibration": ControlMode.CALIBRATING,
         "shutdown": ControlMode.SHUTDOWN,
         "shut down": ControlMode.SHUTDOWN,
+        "shut": ControlMode.SHUTDOWN,
         "exit": ControlMode.SHUTDOWN,
         "quit": ControlMode.SHUTDOWN,
     }
@@ -925,16 +954,23 @@ class VoiceCommandStateMachine:
                     self._activate_listening()
                     continue
                 
-                if not self._check_activation_status():
+                # Interpret command to check if it's a shutdown command
+                control_mode, recording_mode = self._interpret_command(command)
+                
+                # Shutdown commands work even when not activated
+                if control_mode == ControlMode.SHUTDOWN:
+                    logger.info(f"Shutdown command received (bypassing activation check)")
+                    self.control_mode = ControlMode.SHUTDOWN
+                    self._shutdown()
                     continue
                 
-                control_mode, recording_mode = self._interpret_command(command)
+                # For all other commands, require activation
+                if not self._check_activation_status():
+                    continue
                 
                 if control_mode is not None:
                     logger.info(f"Control mode: {self.control_mode.value} -> {control_mode.value}")
                     self.control_mode = control_mode
-                    if control_mode == ControlMode.SHUTDOWN:
-                        self._shutdown()
                 
                 if recording_mode is not None:
                     logger.info(f"Recording mode: {self.recording_mode.value} -> {recording_mode.value}")
