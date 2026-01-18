@@ -67,6 +67,9 @@ class GrievousClient(Robot):
         # Polling configuration
         self.polling_timeout_ms = config.polling_timeout_ms
         self.connect_timeout_s = config.connect_timeout_s
+        
+        # Action handling
+        self.suppress_action_warnings = config.suppress_action_warnings
 
         # ZMQ sockets (initialized in connect())
         self.zmq_context = None
@@ -525,7 +528,10 @@ class GrievousClient(Robot):
             self.zmq_cmd_socket.send_string(json.dumps(action), flags=zmq.NOBLOCK)
             logger.debug("Action sent successfully via ZMQ")
         except zmq.Again:
-            logger.warning("Command socket busy, dropping action")
+            if not self.suppress_action_warnings:
+                logger.warning("Command socket busy, dropping action")
+            else:
+                logger.debug("Command socket busy, dropping action (suppressed)")
         except Exception as e:
             logger.error(f"Error sending action: {e}")
         return action

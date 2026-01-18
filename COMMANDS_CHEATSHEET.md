@@ -23,6 +23,7 @@ conda activate grievous
 lerobot-record \
     --robot.type=grievous_client \
     --robot.remote_ip=192.168.50.148 \
+    --robot.suppress_action_warnings=true \
     --robot.cameras='{
         left_wrist: {type: opencv, index_or_path: /dev/video6, width: 640, height: 480, fps: 30},
         right_wrist: {type: opencv, index_or_path: /dev/video8, width: 640, height: 480, fps: 30},
@@ -68,12 +69,13 @@ conda activate grievous
 # Set your parameters:
 export TASK="Pick and place cube"
 export DATASET_NAME="pick-place"
-export VERSION=1
-export EPISODES=10
+export VERSION=3
+export EPISODES=50
 
 lerobot-record \
     --robot.type=grievous_client \
     --robot.remote_ip=192.168.50.148 \
+    --robot.suppress_action_warnings=true \
     --robot.cameras='{
         left_wrist: {type: opencv, index_or_path: /dev/video6, width: 640, height: 480, fps: 30},
         right_wrist: {type: opencv, index_or_path: /dev/video8, width: 640, height: 480, fps: 30},

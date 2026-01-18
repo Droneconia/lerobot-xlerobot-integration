@@ -142,6 +142,9 @@ class GrievousClientConfig(RobotConfig):
     polling_timeout_ms: int = 15
     connect_timeout_s: int = 5
     
+    # Action handling
+    suppress_action_warnings: bool = False  # Suppress warnings when host doesn't consume actions (e.g., recording mode)
+    
     # Camera metadata (for dataset features - not actual devices)
     cameras: dict[str, CameraConfig] = field(default_factory=grievous_cameras_config)
     
