@@ -69,7 +69,7 @@ conda activate grievous
 # Set your parameters:
 export TASK="Pick and place cube"
 export DATASET_NAME="pick-place"
-export VERSION=3
+export VERSION=4
 export EPISODES=50
 
 lerobot-record \
@@ -94,7 +94,8 @@ lerobot-record \
     --dataset.reset_time_s=60 \
     --dataset.push_to_hub=true \
     --dataset.num_image_writer_threads_per_camera=4 \
-    --display_data=true
+    --display_data=true \
+    --fps=30
 ```
 
 ---
@@ -404,11 +405,11 @@ export HF_HOME=/workspace/.cache/huggingface
 # export CUDA_VISIBLE_DEVICES=0
 
 # Set your parameters:
-export DATASET_REPO_ID="Grievous-Robot/min-dataset-v10"
+export DATASET_REPO_ID="Grievous-Robot/pick-place-v11"
 export DATASET_REVISION="main"  # IMPORTANT: pin revision explicitly
 export BASE_POLICY="lerobot/smolvla_base"
-export OUTPUT_DIR="/workspace/outputs/smolvla_grievous_finetune"
 export RUN_TAG="$(date +%Y%m%d_%H%M%S)"
+export OUTPUT_DIR="/workspace/outputs/smolvla_grievous_finetune_${RUN_TAG}"
 export JOB_NAME="smolvla_grievous_20k_${RUN_TAG}"
 export POLICY_REPO_ID="Grievous-Robot/smolvla_finetuned_20k"
 
