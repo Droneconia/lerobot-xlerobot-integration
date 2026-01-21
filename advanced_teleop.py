@@ -84,7 +84,7 @@ class TeleopControlThread:
         control_mode_getter,  # Function to get current control mode
         freq_hz: int = 120,
         motor_bus_lock: Optional[threading.Lock] = None,
-        recording_thread: Optional["RecordingThread"] = None,
+        observation_thread: Optional["ObservationThread"] = None,
     ):
         """Initialize teleop control thread.
         
@@ -95,7 +95,7 @@ class TeleopControlThread:
             control_mode_getter: Function that returns current ControlMode
             freq_hz: Refresh rate for teleop control loop
             motor_bus_lock: Shared lock for serializing motor bus access
-            recording_thread: RecordingThread instance to get observations from
+            observation_thread: ObservationThread instance to get observations from
         """
         self.robot = robot
         self.teleop_action_processor = teleop_action_processor
@@ -103,7 +103,7 @@ class TeleopControlThread:
         self.control_mode_getter = control_mode_getter
         self.freq_hz = freq_hz
         self.motor_bus_lock = motor_bus_lock
-        self.recording_thread = recording_thread
+        self.observation_thread = observation_thread
         
         # Thread-safe storage for last action
         self._lock = threading.Lock()
@@ -178,11 +178,11 @@ class TeleopControlThread:
                             self.robot.send_action(action)
                         elif action_valid and current_control_mode == ControlMode.BASE_TELEOP:
                             # Process and send base/head actions (keep arms stationary)
-                            # Get current observation from recording thread (not from motors)
-                            if self.recording_thread:
-                                observation = self.recording_thread.get_last_observation()
+                            # Get current observation from observation thread (not from motors)
+                            if self.observation_thread:
+                                observation = self.observation_thread.get_last_observation()
                             else:
-                                # Fallback: get observation directly if recording thread not available
+                                # Fallback: get observation directly if observation thread not available
                                 observation = self.robot.get_observation()
                             
                             # Create base/head action: map leader arm positions to base/head control
@@ -263,11 +263,11 @@ class TeleopControlThread:
                         self.robot.send_action(action)
                     elif action_valid and current_control_mode == ControlMode.BASE_TELEOP:
                         # Process and send base/head actions (keep arms stationary)
-                        # Get current observation from recording thread (not from motors)
-                        if self.recording_thread:
-                            observation = self.recording_thread.get_last_observation()
+                        # Get current observation from observation thread (not from motors)
+                        if self.observation_thread:
+                            observation = self.observation_thread.get_last_observation()
                         else:
-                            # Fallback: get observation directly if recording thread not available
+                            # Fallback: get observation directly if observation thread not available
                             observation = self.robot.get_observation()
                         
                         # Create base/head action: map leader arm positions to base/head control
@@ -404,16 +404,16 @@ class TeleopControlThread:
             return self._last_action.copy()
 
 
-class RecordingThread:
-    """Separate thread for recording and sending data via ZMQ.
+class ObservationThread:
+    """Separate thread for getting observations and sending data via ZMQ.
     
     This thread continuously:
     1. Gets observations from robot (arms, base, head, cameras)
     2. Gets actions from teleop thread
     3. Processes observations (encodes camera images to base64)
-    4. Sends data via ZMQ sockets (only when in recording state)
+    4. Sends data via ZMQ sockets (always, regardless of recording state)
     
-    The thread runs continuously but only sends data when recording_mode is RECORDING.
+    The thread runs continuously and always sends data over the network.
     """
     
     def __init__(
@@ -422,26 +422,23 @@ class RecordingThread:
         teleop_thread: TeleopControlThread,
         zmq_cmd_socket: zmq.Socket,
         zmq_observation_socket: zmq.Socket,
-        recording_mode_getter,  # Function to get current recording mode
         freq_hz: int = 30,
         motor_bus_lock: Optional[threading.Lock] = None,
     ):
-        """Initialize recording thread.
+        """Initialize observation thread.
         
         Args:
             robot: Grievous robot instance
             teleop_thread: TeleopControlThread to get actions from
             zmq_cmd_socket: ZMQ socket for sending actions
             zmq_observation_socket: ZMQ socket for sending observations
-            recording_mode_getter: Function that returns current RecordingMode
-            freq_hz: Refresh rate for recording loop (default: 30)
+            freq_hz: Refresh rate for observation loop (default: 30)
             motor_bus_lock: Shared lock for serializing motor bus access
         """
         self.robot = robot
         self.teleop_thread = teleop_thread
         self.zmq_cmd_socket = zmq_cmd_socket
         self.zmq_observation_socket = zmq_observation_socket
-        self.recording_mode_getter = recording_mode_getter
         self.freq_hz = freq_hz
         self.motor_bus_lock = motor_bus_lock
         
@@ -459,18 +456,18 @@ class RecordingThread:
         self._timing_data_start_time: float | None = None
     
     def start(self) -> None:
-        """Start the recording thread."""
+        """Start the observation thread."""
         if self._running:
-            logger.warning("Recording thread is already running")
+            logger.warning("Observation thread is already running")
             return
         
         self._running = True
-        self._thread = threading.Thread(target=self._recording_loop, daemon=True)
+        self._thread = threading.Thread(target=self._observation_loop, daemon=True)
         self._thread.start()
-        logger.info(f"Recording thread started at {self.freq_hz}Hz")
+        logger.info(f"Observation thread started at {self.freq_hz}Hz")
     
     def stop(self) -> None:
-        """Stop the recording thread."""
+        """Stop the observation thread."""
         if not self._running:
             return
         
@@ -478,9 +475,9 @@ class RecordingThread:
         if self._thread:
             self._thread.join(timeout=5.0)
             if self._thread.is_alive():
-                logger.warning("Recording thread did not stop gracefully")
+                logger.warning("Observation thread did not stop gracefully")
             else:
-                logger.info("Recording thread stopped")
+                logger.info("Observation thread stopped")
     
     def get_last_observation(self) -> dict:
         """Get the last robot observation (thread-safe).
@@ -491,13 +488,13 @@ class RecordingThread:
         with self._observation_lock:
             return self._last_observation.copy()
     
-    def _recording_loop(self) -> None:
-        """Main recording loop running in separate thread."""
+    def _observation_loop(self) -> None:
+        """Main observation loop running in separate thread."""
         while self._running:
             loop_start = time.perf_counter()
             
             try:
-                # Always get observation (for use by other threads, not just when recording)
+                # Always get observation (for use by other threads and network transmission)
                 # Get observation from robot (uses motor bus - must be serialized)
                 if self.motor_bus_lock:
                     with self.motor_bus_lock:
@@ -510,64 +507,60 @@ class RecordingThread:
                     with self._observation_lock:
                         self._last_observation = observation.copy()
                 
-                # Check if we should send data (only when recording)
-                current_recording_mode = self.recording_mode_getter()
-                is_recording = current_recording_mode == RecordingMode.RECORDING
-                
-                if is_recording:
-                    # Encode camera images to base64 for network transmission
-                    if observation:
-                        for cam_key in self.robot.xlerobot.cameras.keys():
-                            if cam_key in observation:
-                                try:
-                                    img = observation[cam_key]
-                                    if img is None or not isinstance(img, np.ndarray) or img.size == 0:
-                                        logger.debug(f"Camera {cam_key} returned empty/invalid image, skipping encode")
-                                        observation[cam_key] = ""
-                                        continue
-                                    
-                                    ret, buffer = cv2.imencode(
-                                        ".jpg", img, [int(cv2.IMWRITE_JPEG_QUALITY), 90]
-                                    )
-                                    if ret:
-                                        observation[cam_key] = base64.b64encode(buffer).decode("utf-8")
-                                    else:
-                                        logger.warning(f"Failed to encode camera {cam_key}")
-                                        observation[cam_key] = ""
-                                except Exception as e:
-                                    logger.error(f"Failed to encode camera {cam_key}: {e}")
+                # Always send data over network (regardless of recording state)
+                # Encode camera images to base64 for network transmission
+                if observation:
+                    for cam_key in self.robot.xlerobot.cameras.keys():
+                        if cam_key in observation:
+                            try:
+                                img = observation[cam_key]
+                                if img is None or not isinstance(img, np.ndarray) or img.size == 0:
+                                    logger.debug(f"Camera {cam_key} returned empty/invalid image, skipping encode")
                                     observation[cam_key] = ""
-                    
-                    # Get last action from teleop thread
-                    robot_action = self.teleop_thread.get_last_action()
-                    
-                    # Add head motor positions to action (placeholder until head control is implemented)
-                    if robot_action and observation:
-                        robot_action["head_motor_1.pos"] = observation.get("head_motor_1.pos", 0.0)
-                        robot_action["head_motor_2.pos"] = observation.get("head_motor_2.pos", 0.0)
-                    
-                    # Send processed robot_action to remote client via command socket
-                    if robot_action:
-                        try:
-                            self.zmq_cmd_socket.send_string(json.dumps(robot_action), flags=zmq.NOBLOCK)
-                        except zmq.Again:
-                            logger.debug("Dropping action feedback, no client connected")
-                        except Exception as e:
-                            logger.error(f"Failed to send action feedback: {e}")
-                    
-                    # Send observation to remote client
-                    if observation:
-                        try:
-                            self.zmq_observation_socket.send_string(
-                                json.dumps(observation), flags=zmq.NOBLOCK
-                            )
-                        except zmq.Again:
-                            logger.debug("Dropping observation, no client connected")
-                        except Exception as e:
-                            logger.error(f"Failed to send observation: {e}")
+                                    continue
+                                
+                                ret, buffer = cv2.imencode(
+                                    ".jpg", img, [int(cv2.IMWRITE_JPEG_QUALITY), 90]
+                                )
+                                if ret:
+                                    observation[cam_key] = base64.b64encode(buffer).decode("utf-8")
+                                else:
+                                    logger.warning(f"Failed to encode camera {cam_key}")
+                                    observation[cam_key] = ""
+                            except Exception as e:
+                                logger.error(f"Failed to encode camera {cam_key}: {e}")
+                                observation[cam_key] = ""
+                
+                # Get last action from teleop thread
+                robot_action = self.teleop_thread.get_last_action()
+                
+                # Add head motor positions to action (placeholder until head control is implemented)
+                if robot_action and observation:
+                    robot_action["head_motor_1.pos"] = observation.get("head_motor_1.pos", 0.0)
+                    robot_action["head_motor_2.pos"] = observation.get("head_motor_2.pos", 0.0)
+                
+                # Send processed robot_action to remote client via command socket
+                if robot_action:
+                    try:
+                        self.zmq_cmd_socket.send_string(json.dumps(robot_action), flags=zmq.NOBLOCK)
+                    except zmq.Again:
+                        logger.debug("Dropping action feedback, no client connected")
+                    except Exception as e:
+                        logger.error(f"Failed to send action feedback: {e}")
+                
+                # Send observation to remote client
+                if observation:
+                    try:
+                        self.zmq_observation_socket.send_string(
+                            json.dumps(observation), flags=zmq.NOBLOCK
+                        )
+                    except zmq.Again:
+                        logger.debug("Dropping observation, no client connected")
+                    except Exception as e:
+                        logger.error(f"Failed to send observation: {e}")
                 
             except Exception as e:
-                logger.error(f"Error in recording loop: {e}", exc_info=True)
+                logger.error(f"Error in observation loop: {e}", exc_info=True)
             
             # Rate limiting - sleep at the end to reach desired frequency
             elapsed = time.perf_counter() - loop_start
@@ -687,8 +680,8 @@ class VoiceCommandStateMachine:
         self.action_processor = None
         self.control_loop_fps = 120  # Control loop frequency (Hz)
         self.control_thread: TeleopControlThread | None = None
-        self.recording_fps = 30  # Recording loop frequency (Hz)
-        self.recording_thread: Optional[RecordingThread] = None
+        self.observation_fps = 30  # Observation loop frequency (Hz)
+        self.observation_thread: Optional[ObservationThread] = None
         # Motor bus lock to prevent concurrent access to serial port
         self.motor_bus_lock = threading.Lock()
         
@@ -903,7 +896,7 @@ class VoiceCommandStateMachine:
             self.teleop_action_processor, self.action_processor, _ = make_default_processors()
             logger.info("Processors initialized")
             
-            # Create and start control thread (recording_thread will be set after creation)
+            # Create and start control thread (observation_thread will be set after creation)
             self.control_thread = TeleopControlThread(
                 robot=self.robot,
                 teleop_action_processor=self.teleop_action_processor,
@@ -911,24 +904,23 @@ class VoiceCommandStateMachine:
                 control_mode_getter=lambda: self.control_mode,
                 freq_hz=self.control_loop_fps,
                 motor_bus_lock=self.motor_bus_lock,  # Serialize motor bus access
-                recording_thread=None,  # Will be set after recording thread is created
+                observation_thread=None,  # Will be set after observation thread is created
             )
             self.control_thread.start()
             
-            # Create and start recording thread
-            self.recording_thread = RecordingThread(
+            # Create and start observation thread
+            self.observation_thread = ObservationThread(
                 robot=self.robot,
                 teleop_thread=self.control_thread,
                 zmq_cmd_socket=self.zmq_cmd_socket,
                 zmq_observation_socket=self.zmq_observation_socket,
-                recording_mode_getter=lambda: self.recording_mode,
-                freq_hz=self.recording_fps,
+                freq_hz=self.observation_fps,
                 motor_bus_lock=self.motor_bus_lock,  # Serialize motor bus access
             )
-            self.recording_thread.start()
+            self.observation_thread.start()
             
-            # Update control thread with recording thread reference
-            self.control_thread.recording_thread = self.recording_thread
+            # Update control thread with observation thread reference
+            self.control_thread.observation_thread = self.observation_thread
             
             self.robot_initialized = True
             logger.info("Robot initialization complete - ready to accept commands")
@@ -987,9 +979,9 @@ class VoiceCommandStateMachine:
         if self.control_thread:
             self.control_thread.stop()
         
-        # Stop recording thread
-        if self.recording_thread:
-            self.recording_thread.stop()
+        # Stop observation thread
+        if self.observation_thread:
+            self.observation_thread.stop()
         
         # Close ZMQ sockets
         if hasattr(self, 'zmq_observation_socket') and self.zmq_observation_socket:
