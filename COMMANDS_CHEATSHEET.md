@@ -471,3 +471,18 @@ python -m lerobot.scripts.lerobot_train \
   --rename_map='{"observation.images.left_wrist":"observation.images.camera1","observation.images.right_wrist":"observation.images.camera2","observation.images.head":"observation.images.camera3"}' \
   --seed=1000 
   ```
+
+
+  ### 6. Train ACT
+  ```bash
+  lerobot-train \
+  --dataset.repo_id=Grievous-Robot/pick-place-v11 \
+  --policy.type=act \
+  --output_dir=outputs/train/act_pick-place \
+  --job_name=act_pick-place \
+  --policy.device=cuda \
+  --wandb.enable=true \
+  --wandb.project="act-finetuning" \
+  --policy.repo_id=Grievous-Robot/act_policy \
+  --batch_size=8
+  ```
