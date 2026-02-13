@@ -121,11 +121,11 @@ def init_keyboard_listener():
 
     This function sets up a listener for specific keys (right arrow, left arrow, escape) to control
     the program flow during execution, such as stopping recording or exiting loops. It gracefully
-    handles headless environments where keyboard listening is not possible.
+    handles headless/SSH environments where `pynput` keyboard listening is not possible.
 
     Returns:
         A tuple containing:
-        - The `pynput.keyboard.Listener` instance, or `None` if in a headless environment.
+        - A listener-like object with `stop()` (and optionally `start()`), or `None` if unavailable.
         - A dictionary of event flags (e.g., `exit_early`) that are set by key presses.
     """
     # Allow to exit early while recording an episode or resetting the environment,
@@ -136,36 +136,107 @@ def init_keyboard_listener():
     events["rerecord_episode"] = False
     events["stop_recording"] = False
 
-    if is_headless():
-        logging.warning(
-            "Headless environment detected. On-screen cameras display and keyboard inputs will not be available."
-        )
-        listener = None
+    # Prefer `pynput` when available, but fall back to `sshkeyboard` for terminal-only SSH sessions.
+    try:
+        from pynput import keyboard
+
+        def on_press(key):
+            try:
+                if key == keyboard.Key.right:
+                    print("Right arrow key pressed. Exiting loop...")
+                    events["exit_early"] = True
+                elif key == keyboard.Key.left:
+                    print("Left arrow key pressed. Exiting loop and rerecord the last episode...")
+                    events["rerecord_episode"] = True
+                    events["exit_early"] = True
+                elif key == keyboard.Key.esc:
+                    print("Escape key pressed. Stopping data recording...")
+                    events["stop_recording"] = True
+                    events["exit_early"] = True
+            except Exception as e:
+                print(f"Error handling key press: {e}")
+
+        listener = keyboard.Listener(on_press=on_press)
+        listener.start()
         return listener, events
+    except Exception as e:
+        logging.info(
+            "Could not initialize `pynput` keyboard listener (%s). "
+            "Falling back to terminal-based keyboard listener for SSH/headless sessions.",
+            repr(e),
+        )
 
-    # Only import pynput if not in a headless environment
-    from pynput import keyboard
+    # Terminal-based fallback (works over SSH if stdin is a real TTY).
+    try:
+        import sys
+        import threading
 
-    def on_press(key):
-        try:
-            if key == keyboard.Key.right:
-                print("Right arrow key pressed. Exiting loop...")
-                events["exit_early"] = True
-            elif key == keyboard.Key.left:
-                print("Left arrow key pressed. Exiting loop and rerecord the last episode...")
-                events["rerecord_episode"] = True
-                events["exit_early"] = True
-            elif key == keyboard.Key.esc:
-                print("Escape key pressed. Stopping data recording...")
-                events["stop_recording"] = True
-                events["exit_early"] = True
-        except Exception as e:
-            print(f"Error handling key press: {e}")
+        if not sys.stdin or not sys.stdin.isatty():
+            logging.warning(
+                "Keyboard listener unavailable: stdin is not a TTY. "
+                "Run in an interactive terminal to enable keyboard controls."
+            )
+            return None, events
 
-    listener = keyboard.Listener(on_press=on_press)
-    listener.start()
+        from sshkeyboard import listen_keyboard, stop_listening
 
-    return listener, events
+        def on_press(key: str) -> None:
+            """
+            Handle SSH/terminal key presses.
+
+            Note: `sshkeyboard` uses readable key names like: 'left', 'right', 'esc'.
+            """
+            try:
+                if key == "right":
+                    print("Right arrow key pressed. Exiting loop...")
+                    events["exit_early"] = True
+                elif key == "left":
+                    print("Left arrow key pressed. Exiting loop and rerecord the last episode...")
+                    events["rerecord_episode"] = True
+                    events["exit_early"] = True
+                elif key == "esc":
+                    print("Escape key pressed. Stopping data recording...")
+                    events["stop_recording"] = True
+                    events["exit_early"] = True
+                    # Stop the listener immediately; cleanup will still call stop() safely.
+                    stop_listening()
+            except Exception as exc:
+                print(f"Error handling key press: {exc}")
+
+        class _SSHKeyboardListener:
+            """
+            Minimal adapter to match `pynput.keyboard.Listener`'s `stop()` API.
+
+            `sshkeyboard.listen_keyboard()` blocks, so we run it in a daemon thread and stop it
+            via `sshkeyboard.stop_listening()`.
+            """
+
+            def __init__(self) -> None:
+                self._thread = threading.Thread(
+                    target=listen_keyboard,
+                    kwargs={"on_press": on_press, "until": None, "sequential": True},
+                    daemon=True,
+                )
+
+            def start(self) -> None:
+                self._thread.start()
+
+            def stop(self) -> None:
+                stop_listening()
+                # Best-effort join: avoid blocking shutdown if something goes wrong.
+                self._thread.join(timeout=1.0)
+
+        listener = _SSHKeyboardListener()
+        listener.start()
+        return listener, events
+    except ImportError:
+        logging.warning(
+            "Keyboard listener unavailable: install `sshkeyboard` to enable keyboard controls in SSH/headless sessions."
+        )
+        return None, events
+    except Exception:
+        logging.exception("Failed to initialize terminal-based keyboard listener.")
+        return None, events
 
 
 def sanity_check_dataset_name(repo_id, policy_cfg):

@@ -556,8 +556,13 @@ def record(cfg: RecordConfig) -> LeRobotDataset:
         if teleop and teleop.is_connected:
             teleop.disconnect()
 
-        if not is_headless() and listener:
-            listener.stop()
+        # Always attempt to stop the keyboard listener, even in headless/SSH mode.
+        # (The SSH/terminal listener is exactly for headless sessions and needs cleanup.)
+        if listener:
+            try:
+                listener.stop()
+            except Exception:
+                logging.exception("Failed to stop keyboard listener cleanly.")
 
         if cfg.dataset.push_to_hub:
             dataset.push_to_hub(tags=cfg.dataset.tags, private=cfg.dataset.private)
