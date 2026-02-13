@@ -210,6 +210,9 @@ class RecordConfig:
     play_sounds: bool = True
     # Resume recording on an existing dataset.
     resume: bool = False
+    # Enable terminal-based keyboard listener for SSH/headless sessions (uses `sshkeyboard`).
+    # When False (default), keyboard controls are disabled in headless mode (original behavior).
+    ssh_keyboard: bool = False
 
     def __post_init__(self):
         # HACK: We parse again the cli args here to get the pretrained path if there was one.
@@ -488,7 +491,7 @@ def record(cfg: RecordConfig) -> LeRobotDataset:
         if teleop is not None:
             teleop.connect()
 
-        listener, events = init_keyboard_listener()
+        listener, events = init_keyboard_listener(enable_sshkeyboard=cfg.ssh_keyboard)
 
         with VideoEncodingManager(dataset):
             recorded_episodes = 0
@@ -556,13 +559,9 @@ def record(cfg: RecordConfig) -> LeRobotDataset:
         if teleop and teleop.is_connected:
             teleop.disconnect()
 
-        # Always attempt to stop the keyboard listener, even in headless/SSH mode.
-        # (The SSH/terminal listener is exactly for headless sessions and needs cleanup.)
-        if listener:
-            try:
-                listener.stop()
-            except Exception:
-                logging.exception("Failed to stop keyboard listener cleanly.")
+        # Restore original cleanup behavior, except when SSH keyboard was explicitly enabled.
+        if listener and (not is_headless() or cfg.ssh_keyboard):
+            listener.stop()
 
         if cfg.dataset.push_to_hub:
             dataset.push_to_hub(tags=cfg.dataset.tags, private=cfg.dataset.private)
