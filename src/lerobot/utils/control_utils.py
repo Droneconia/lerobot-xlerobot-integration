@@ -115,7 +115,7 @@ def predict_action(
     return action
 
 
-def init_keyboard_listener(enable_sshkeyboard: bool = False):
+def init_keyboard_listener(enable_sshkeyboard: bool = True):
     """
     Initializes a non-blocking keyboard listener for real-time user interaction.
 

@@ -560,7 +560,9 @@ def record(cfg: RecordConfig) -> LeRobotDataset:
             teleop.disconnect()
 
         # Restore original cleanup behavior, except when SSH keyboard was explicitly enabled.
-        if listener and (not is_headless() or cfg.ssh_keyboard):
+        # Important: check `cfg.ssh_keyboard` first to avoid calling `is_headless()`, which attempts
+        # to import `pynput` (and can error/noise on headless systems).
+        if listener and (cfg.ssh_keyboard or not is_headless()):
             listener.stop()
 
         if cfg.dataset.push_to_hub:
