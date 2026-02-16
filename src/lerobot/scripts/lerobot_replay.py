@@ -53,6 +53,7 @@ from lerobot.processor import (
 from lerobot.robots import (  # noqa: F401
     Robot,
     RobotConfig,
+    advanced_grievous,
     bi_openarm_follower,
     bi_so_follower,
     earthrover_mini_plus,

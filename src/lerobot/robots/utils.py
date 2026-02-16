@@ -56,6 +56,10 @@ def make_robot_from_config(config: RobotConfig) -> Robot:
         from .bi_so_follower import BiSOFollower
 
         return BiSOFollower(config)
+    elif config.type == "advanced_grievous":
+        from .advanced_grievous import AdvancedGrievous
+
+        return AdvancedGrievous(config)
     elif config.type == "reachy2":
         from .reachy2 import Reachy2Robot
 
