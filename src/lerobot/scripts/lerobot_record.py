@@ -194,6 +194,14 @@ class DatasetRecordConfig:
 class RecordConfig:
     robot: RobotConfig
     dataset: DatasetRecordConfig
+    # Rename map for observations (images/state). This mirrors `lerobot-train`/`lerobot-eval`'s `--rename_map`
+    # flag for convenience. If provided, this value is propagated to `dataset.rename_map` unless that field
+    # is explicitly set.
+    #
+    # Practical reason: `lerobot-record` constructs the policy *before* building preprocessors, so if the
+    # policy config expects different observation keys than the robot/dataset provides (e.g. `camera1`
+    # vs `left_wrist`), we need the rename map available early to avoid failing feature-consistency checks.
+    rename_map: dict[str, str] = field(default_factory=dict)
     # Whether to control the robot with a teleoperator
     teleop: TeleoperatorConfig | None = None
     # Whether to control the robot with a policy
@@ -223,6 +231,13 @@ class RecordConfig:
 
             self.policy = PreTrainedConfig.from_pretrained(policy_path, cli_overrides=cli_overrides)
             self.policy.pretrained_path = policy_path
+
+        # Backward/forward compatibility:
+        # - Historically, rename was stored under `dataset.rename_map` (flag: `--dataset.rename_map`).
+        # - We also accept `--rename_map` at the top level for parity with train/eval.
+        # Precedence: explicit `--dataset.rename_map` wins; otherwise `--rename_map` populates it.
+        if not self.dataset.rename_map and self.rename_map:
+            self.dataset.rename_map = self.rename_map
 
         if self.teleop is None and self.policy is None:
             raise ValueError("Choose a policy, a teleoperator or both to control the robot")
@@ -472,8 +487,17 @@ def record(cfg: RecordConfig) -> LeRobotDataset:
                 vcodec=cfg.dataset.vcodec,
             )
 
-        # Load pretrained policy
-        policy = None if cfg.policy is None else make_policy(cfg.policy, ds_meta=dataset.meta)
+        # Load pretrained policy.
+        #
+        # NOTE: We pass `rename_map` here so policy instantiation doesn't fail early on a visual feature-name
+        # mismatch (e.g. policy expects `observation.images.camera1` while the robot/dataset provides
+        # `observation.images.left_wrist`). The actual renaming is performed later by the preprocessor
+        # (RenameObservationsProcessorStep), configured with `cfg.dataset.rename_map`.
+        policy = (
+            None
+            if cfg.policy is None
+            else make_policy(cfg.policy, ds_meta=dataset.meta, rename_map=cfg.dataset.rename_map)
+        )
         preprocessor = None
         postprocessor = None
         if cfg.policy is not None:
