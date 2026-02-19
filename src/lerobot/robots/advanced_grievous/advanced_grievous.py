@@ -19,7 +19,7 @@ from functools import cached_property
 import numpy as np
 
 from lerobot.motors import Motor, MotorNormMode
-from lerobot.motors.feetech import FeetechMotorsBus
+from lerobot.motors.feetech import FeetechMotorsBus, OperatingMode
 from lerobot.processor import RobotAction, RobotObservation
 from lerobot.robots.so_follower import SOFollower, SOFollowerRobotConfig
 from lerobot.utils.decorators import check_if_already_connected, check_if_not_connected
@@ -222,6 +222,8 @@ class AdvancedGrievous(Robot):
         self.left_arm.connect(calibrate)
         self.right_arm.connect(calibrate)
         self.base_bus.connect()
+        self.configure()
+        logger.info(f"{self} connected.")
 
     @property
     def is_calibrated(self) -> bool:
@@ -234,11 +236,20 @@ class AdvancedGrievous(Robot):
     def configure(self) -> None:
         self.left_arm.configure()
         self.right_arm.configure()
+        # Base motors must be in VELOCITY mode to accept Goal_Velocity (same as LeKiwi).
+        # Disable torque before changing mode, then re-enable.
+        self.base_bus.disable_torque()
+        for name in self.base_motors:
+            self.base_bus.write("Operating_Mode", name, OperatingMode.VELOCITY.value)
         self.base_bus.enable_torque()
 
     def setup_motors(self) -> None:
         self.left_arm.setup_motors()
         self.right_arm.setup_motors()
+        for motor in reversed(self.base_motors):
+            input(f"Connect the controller board to the '{motor}' motor only and press enter.")
+            self.base_bus.setup_motor(motor)
+            print(f"'{motor}' motor id set to {self.base_bus.motors[motor].id}")
 
     @check_if_not_connected
     def get_observation(self) -> RobotObservation:
@@ -292,7 +303,11 @@ class AdvancedGrievous(Robot):
 
     @check_if_not_connected
     def disconnect(self):
-        self.base_bus.sync_write("Goal_Velocity", dict.fromkeys(self.base_motors, 0), num_retry=5)
-        self.base_bus.disconnect(disable_torque=self.config.base_config.disable_torque_on_disconnect)
+        try:
+            self.base_bus.sync_write("Goal_Velocity", dict.fromkeys(self.base_motors, 0), num_retry=5)
+            self.base_bus.disconnect(disable_torque=self.config.base_config.disable_torque_on_disconnect)
+        except Exception as e:
+            logger.warning("Error disconnecting base: %s", e)
         self.left_arm.disconnect()
         self.right_arm.disconnect()
+        logger.info(f"{self} disconnected.")

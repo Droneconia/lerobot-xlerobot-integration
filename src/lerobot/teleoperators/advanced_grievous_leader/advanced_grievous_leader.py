@@ -14,11 +14,19 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import json
 import logging
+import queue
+import threading
+import time
+from enum import Enum
 from functools import cached_property
+from pathlib import Path
+from typing import Optional
 
 from lerobot.teleoperators.so_leader import SOLeaderTeleopConfig
 from lerobot.utils.decorators import check_if_already_connected, check_if_not_connected
+from lerobot.utils.utils import log_say
 
 from ..so_leader import SOLeader
 from ..teleoperator import Teleoperator
@@ -26,11 +34,54 @@ from .config_advanced_grievous_leader import AdvancedGrievousLeaderConfig
 
 logger = logging.getLogger(__name__)
 
+# Default Vosk model (repo root / voice-model / vosk-model-small-en-us-0.15)
+_DEFAULT_VOICE_MODEL_PATH = (
+    Path(__file__).resolve().parent.parent.parent.parent.parent
+    / "voice-model" / "vosk-model-small-en-us-0.15"
+)
+
+try:
+    import pyaudio
+    PYAUDIO_AVAILABLE = True
+except ImportError:
+    PYAUDIO_AVAILABLE = False
+
+try:
+    from vosk import Model, KaldiRecognizer
+    VOSK_AVAILABLE = True
+except ImportError:
+    VOSK_AVAILABLE = False
+
+
+class TeleopMode(Enum):
+    """Which part of the robot is being teleoperated."""
+    ARM_TELEOP = "arm_teleop"   # arms from leader, base zero
+    BASE_TELEOP = "base_teleop"  # arms held (cached), base from left leader arm mapping
+
+
+# Voice phrases that switch mode (lowercase, one word or short phrase)
+VOICE_TO_MODE = {
+    "arm": TeleopMode.ARM_TELEOP,
+    "arms": TeleopMode.ARM_TELEOP,
+    "base": TeleopMode.BASE_TELEOP,
+    "bass": TeleopMode.BASE_TELEOP,
+    "move": TeleopMode.BASE_TELEOP,
+}
+
+
+def _apply_deadzone(value: float, deadzone: float) -> float:
+    if abs(value) < deadzone:
+        return 0.0
+    if value > 0:
+        return (value - deadzone) / (100.0 - deadzone)
+    return (value + deadzone) / (100.0 - deadzone)
+
 
 class AdvancedGrievousLeader(Teleoperator):
     """
     [Bimanual SO Leader Arms](https://github.com/TheRobotStudio/SO-ARM100) designed by TheRobotStudio
     (Advanced Grievous Leader variant).
+    Voice commands switch between arm teleop and base teleop (left leader arm → base velocities).
     """
 
     config_class = AdvancedGrievousLeaderConfig
@@ -55,13 +106,102 @@ class AdvancedGrievousLeader(Teleoperator):
         self.left_arm = SOLeader(left_arm_config)
         self.right_arm = SOLeader(right_arm_config)
 
+        # State: arm vs base teleop; voice updates this
+        self._mode = TeleopMode.ARM_TELEOP
+        self._cached_arm_action: Optional[dict[str, float]] = None
+
+        # Optional voice: queue filled by listener thread, drained in get_action()
+        self._voice_queue: queue.Queue[str] = queue.Queue()
+        self._voice_listening = False
+        self._voice_thread: Optional[threading.Thread] = None
+        self._voice_audio_stream = None
+        self._voice_recognizer = None
+        self._voice_pyaudio = None
+
+    @property
+    def teleop_mode(self) -> TeleopMode:
+        return self._mode
+
+    def _start_voice_listener(self) -> None:
+        if not VOSK_AVAILABLE or not PYAUDIO_AVAILABLE:
+            return
+        raw_path = self.config.voice_model_path or str(_DEFAULT_VOICE_MODEL_PATH)
+        path = Path(raw_path)
+        if not path.exists():
+            logger.warning("Voice model path %s not found, voice mode switching disabled.", path)
+            return
+        try:
+            model = Model(str(path))
+            self._voice_pyaudio = pyaudio.PyAudio()
+            stream = self._voice_pyaudio.open(
+                format=pyaudio.paInt16,
+                channels=1,
+                rate=16000,
+                input=True,
+                frames_per_buffer=4000,
+            )
+            self._voice_audio_stream = stream
+            self._voice_recognizer = KaldiRecognizer(model, 16000)
+            self._voice_listening = True
+            self._voice_thread = threading.Thread(target=self._voice_loop, daemon=True)
+            self._voice_thread.start()
+            logger.info("Voice listener started; say 'arm'/'arms' or 'base'/'move' to switch mode.")
+        except Exception as e:
+            logger.warning("Could not start voice listener: %s", e)
+
+    def _voice_loop(self) -> None:
+        while self._voice_listening and self._voice_audio_stream and self._voice_recognizer:
+            try:
+                data = self._voice_audio_stream.read(4000, exception_on_overflow=False)
+                if self._voice_recognizer.AcceptWaveform(data):
+                    result = json.loads(self._voice_recognizer.Result())
+                    text = (result.get("text") or "").strip().lower()
+                    if text:
+                        self._voice_queue.put(text)
+            except Exception as e:
+                if self._voice_listening:
+                    logger.debug("Voice loop error: %s", e)
+                time.sleep(0.05)
+
+    def _stop_voice_listener(self) -> None:
+        self._voice_listening = False
+        if self._voice_thread and self._voice_thread.is_alive():
+            self._voice_thread.join(timeout=2.0)
+        if self._voice_audio_stream:
+            try:
+                self._voice_audio_stream.stop_stream()
+                self._voice_audio_stream.close()
+            except Exception:
+                pass
+            self._voice_audio_stream = None
+        if self._voice_pyaudio:
+            try:
+                self._voice_pyaudio.terminate()
+            except Exception:
+                pass
+            self._voice_pyaudio = None
+        self._voice_recognizer = None
+
+    def _process_voice_queue(self) -> None:
+        while True:
+            try:
+                text = self._voice_queue.get_nowait()
+            except queue.Empty:
+                break
+            text = text.strip().lower()
+            for phrase, mode in VOICE_TO_MODE.items():
+                if phrase in text or text == phrase:
+                    self._mode = mode
+                    logger.info("Teleop mode: %s", mode.value)
+                    # Speak mode over speakers so user knows what they're controlling
+                    log_say("arms" if mode == TeleopMode.ARM_TELEOP else "base", blocking=False)
+                    break
+
     @cached_property
     def action_features(self) -> dict[str, type]:
         left_arm_features = self.left_arm.action_features
         right_arm_features = self.right_arm.action_features
-        # Base body-frame velocities (x, y, theta) - same as advanced_grievous robot
         base_ft = {"x.vel": float, "y.vel": float, "theta.vel": float}
-
         return {
             **{f"left_{k}": v for k, v in left_arm_features.items()},
             **{f"right_{k}": v for k, v in right_arm_features.items()},
@@ -80,6 +220,7 @@ class AdvancedGrievousLeader(Teleoperator):
     def connect(self, calibrate: bool = True) -> None:
         self.left_arm.connect(calibrate)
         self.right_arm.connect(calibrate)
+        self._start_voice_listener()
 
     @property
     def is_calibrated(self) -> bool:
@@ -99,28 +240,48 @@ class AdvancedGrievousLeader(Teleoperator):
 
     @check_if_not_connected
     def get_action(self) -> dict[str, float]:
-        action_dict = {}
+        self._process_voice_queue()
 
-        # Add "left_" prefix
         left_action = self.left_arm.get_action()
-        action_dict.update({f"left_{key}": value for key, value in left_action.items()})
-
-        # Add "right_" prefix
         right_action = self.right_arm.get_action()
-        action_dict.update({f"right_{key}": value for key, value in right_action.items()})
+        prefixed_left = {f"left_{k}": v for k, v in left_action.items()}
+        prefixed_right = {f"right_{k}": v for k, v in right_action.items()}
+        full_arm = {**prefixed_left, **prefixed_right}
 
-        # Base body-frame velocities (x, y, theta). Default 0; can be driven by keyboard or other input later.
-        action_dict["x.vel"] = 0.0
-        action_dict["y.vel"] = 0.0
-        action_dict["theta.vel"] = 0.0
+        if self._mode == TeleopMode.ARM_TELEOP:
+            self._cached_arm_action = full_arm.copy()
+            return {
+                **full_arm,
+                "x.vel": 0.0,
+                "y.vel": 0.0,
+                "theta.vel": 0.0,
+            }
 
-        return action_dict
+        # BASE_TELEOP: hold arms (use cache or current if no cache), drive base from left leader arm
+        if self._cached_arm_action is None:
+            self._cached_arm_action = full_arm.copy()
+        arm_part = self._cached_arm_action
+
+        deadzone = 20.0
+        base_scale = 0.4
+        theta_scale = 60.0
+        # Scaled down to test
+        x_vel = -_apply_deadzone(prefixed_left.get("left_wrist_flex.pos", 0.0), deadzone) * base_scale * 0.1
+        y_vel = -_apply_deadzone(prefixed_left.get("left_shoulder_pan.pos", 0.0), deadzone) * base_scale * 0.1
+        theta_vel = -_apply_deadzone(prefixed_left.get("left_wrist_roll.pos", 0.0), deadzone) * theta_scale * 0.1
+
+        return {
+            **arm_part,
+            "x.vel": x_vel,
+            "y.vel": y_vel,
+            "theta.vel": theta_vel,
+        }
 
     def send_feedback(self, feedback: dict[str, float]) -> None:
-        # TODO: Implement force feedback
         raise NotImplementedError
 
     @check_if_not_connected
     def disconnect(self) -> None:
+        self._stop_voice_listener()
         self.left_arm.disconnect()
         self.right_arm.disconnect()

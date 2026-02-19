@@ -15,6 +15,7 @@
 # limitations under the License.
 
 from dataclasses import dataclass
+from typing import Optional
 
 from lerobot.teleoperators.so_leader import SOLeaderConfig
 
@@ -28,3 +29,5 @@ class AdvancedGrievousLeaderConfig(TeleoperatorConfig):
 
     left_arm_config: SOLeaderConfig
     right_arm_config: SOLeaderConfig
+    # Optional path to Vosk model dir for voice mode switching. If None, voice is disabled.
+    voice_model_path: Optional[str] = None
