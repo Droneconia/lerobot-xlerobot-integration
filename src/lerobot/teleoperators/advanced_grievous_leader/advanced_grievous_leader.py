@@ -171,14 +171,14 @@ class AdvancedGrievousLeader(Teleoperator):
             try:
                 self._voice_audio_stream.stop_stream()
                 self._voice_audio_stream.close()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("Error closing voice audio stream: %s", e)
             self._voice_audio_stream = None
         if self._voice_pyaudio:
             try:
                 self._voice_pyaudio.terminate()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("Error terminating PyAudio: %s", e)
             self._voice_pyaudio = None
         self._voice_recognizer = None
 
@@ -191,10 +191,11 @@ class AdvancedGrievousLeader(Teleoperator):
             text = text.strip().lower()
             for phrase, mode in VOICE_TO_MODE.items():
                 if phrase in text or text == phrase:
+                    old_mode = self._mode
                     self._mode = mode
-                    logger.info("Teleop mode: %s", mode.value)
-                    # Speak mode over speakers so user knows what they're controlling
-                    log_say("arms" if mode == TeleopMode.ARM_TELEOP else "base", blocking=False)
+                    if old_mode != mode:
+                        logger.info("Teleop mode: %s", mode.value)
+                        log_say("arms" if mode == TeleopMode.ARM_TELEOP else "base", blocking=False)
                     break
 
     @cached_property
@@ -266,9 +267,9 @@ class AdvancedGrievousLeader(Teleoperator):
         base_scale = 0.4
         theta_scale = 60.0
         # Scaled down to test
-        x_vel = -_apply_deadzone(prefixed_left.get("left_wrist_flex.pos", 0.0), deadzone) * base_scale * 0.1
-        y_vel = -_apply_deadzone(prefixed_left.get("left_shoulder_pan.pos", 0.0), deadzone) * base_scale * 0.1
-        theta_vel = -_apply_deadzone(prefixed_left.get("left_wrist_roll.pos", 0.0), deadzone) * theta_scale * 0.1
+        x_vel = -_apply_deadzone(prefixed_left.get("left_wrist_flex.pos", 0.0), deadzone) * base_scale * 0.5
+        y_vel = -_apply_deadzone(prefixed_left.get("left_shoulder_pan.pos", 0.0), deadzone) * base_scale * 0.5
+        theta_vel = -_apply_deadzone(prefixed_left.get("left_wrist_roll.pos", 0.0), deadzone) * theta_scale * 0.5
 
         return {
             **arm_part,

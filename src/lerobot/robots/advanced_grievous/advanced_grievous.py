@@ -264,7 +264,9 @@ class AdvancedGrievous(Robot):
         obs_dict.update({f"right_{key}": value for key, value in right_obs.items()})
 
         # Read base wheel raw velocities and convert to body-frame (x, y, theta)
-        base_wheel_vel = self.base_bus.sync_read("Present_Velocity", self.base_motors)
+        base_wheel_vel = self.base_bus.sync_read(
+            "Present_Velocity", self.base_motors, num_retry=5
+        )
         base_vel = self._wheel_raw_to_body(
             base_wheel_vel["base_left_wheel"],
             base_wheel_vel["base_back_wheel"],
@@ -289,7 +291,7 @@ class AdvancedGrievous(Robot):
         y_vel = action.get("y.vel", 0.0)
         theta_vel = action.get("theta.vel", 0.0)
         wheel_raw = self._body_to_wheel_raw(x_vel, y_vel, theta_vel)
-        self.base_bus.sync_write("Goal_Velocity", wheel_raw)
+        self.base_bus.sync_write("Goal_Velocity", wheel_raw, num_retry=5)
         base_action = {"x.vel": x_vel, "y.vel": y_vel, "theta.vel": theta_vel}
 
         sent_action_left = self.left_arm.send_action(left_action)
@@ -302,12 +304,18 @@ class AdvancedGrievous(Robot):
         return {**prefixed_sent_action_left, **prefixed_sent_action_right, **base_action}
 
     @check_if_not_connected
-    def disconnect(self):
+    def disconnect(self) -> None:
         try:
             self.base_bus.sync_write("Goal_Velocity", dict.fromkeys(self.base_motors, 0), num_retry=5)
             self.base_bus.disconnect(disable_torque=self.config.base_config.disable_torque_on_disconnect)
         except Exception as e:
             logger.warning("Error disconnecting base: %s", e)
-        self.left_arm.disconnect()
-        self.right_arm.disconnect()
+        try:
+            self.left_arm.disconnect()
+        except Exception as e:
+            logger.warning("Error disconnecting left arm: %s", e)
+        try:
+            self.right_arm.disconnect()
+        except Exception as e:
+            logger.warning("Error disconnecting right arm: %s", e)
         logger.info(f"{self} disconnected.")
