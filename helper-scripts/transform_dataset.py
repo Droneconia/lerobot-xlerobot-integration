@@ -3,9 +3,9 @@
 Transform LeRobot dataset action and observation.state from 12 to 6 or 15 dims, then push to Hub.
 
 - 12 → 6: --arm left (first 6) or --arm right (last 6).
-- 12 → 15: pad with zeros.
+- 12 → 15: NOT IMPLEMENTED YET.
 
-The new dataset is always pushed to the Hub as {repo_id}_separated (e.g. user/dataset → user/dataset_separated).
+The new dataset is always pushed to the Hub as {repo_id}_sep (e.g. user/dataset → user/dataset_sep).
 
 Usage (from repo root):
   PYTHONPATH=src python helper-scripts/transform_dataset.py --repo_id USER/DATASET --target_dim 6 [--arm left|right]
@@ -30,6 +30,7 @@ logger = logging.getLogger(__name__)
 SOURCE_DIM = 12
 TARGET_DIMS = (6, 15)
 ARM_CHOICES = ("left", "right")
+ROBOT_TYPE_6D = "so_follower"
 
 # Video keys are dataset info keys and folder names: observation.images.left_wrist, etc.
 # 6D: remove the wrist camera key for the arm we're not keeping. Always keep head.
@@ -39,6 +40,62 @@ WRIST_VIDEO_KEY_TO_REMOVE_6D = {
     "left": "observation.images.right_wrist",
     "right": "observation.images.left_wrist",
 }
+
+def _transform_stats(stats: dict, target_dim: int, arm: str) -> dict:
+    """Transform dataset statistics for 12D -> (6D or 15D).
+
+    LeRobot uses dataset-level statistics (mean/std/min/max/quantiles) for normalization.
+    When we change the dimensionality of vector features (`action`, `observation.state`),
+    we must apply the exact same slicing/padding to their statistics; otherwise, training
+    will fail with shape mismatches (e.g. 6-D tensors vs 12-D mean/std arrays).
+
+    Notes:
+    - For 6D: keep either the first 6 dims (left) or last 6 dims (right).
+    - For 15D: keep the first 12 dims and pad the remaining 3 dims with zeros. Since the
+      transformed dataset pads those dims with constant zeros, having zero mean/std/min/max
+      is consistent.
+    """
+
+    def _to_6_or_15_stat(arr: np.ndarray) -> np.ndarray:
+        a = np.asarray(arr)
+        if a.ndim == 0:
+            # Unexpected for vector feature stats; keep as-is.
+            return a
+
+        if target_dim == 6:
+            if a.shape[-1] == 6:
+                return a
+            start = 0 if arm == "left" else 6
+            end = start + 6
+            if a.shape[-1] < end:
+                raise ValueError(
+                    f"Cannot slice stats for arm={arm!r}: last dim is {a.shape[-1]}, expected >= {end}."
+                )
+            return a[..., start:end]
+
+        # target_dim == 15
+        if a.shape[-1] == 15:
+            return a
+        out = np.zeros((*a.shape[:-1], 15), dtype=a.dtype)
+        copy_len = min(a.shape[-1], 12)
+        out[..., :copy_len] = a[..., :copy_len]
+        return out
+
+    if not stats:
+        return stats
+
+    new_stats = dict(stats)
+    for key in ("action", "observation.state"):
+        if key not in new_stats:
+            continue
+        ft_stats = dict(new_stats[key])
+        for stat_name, stat_value in ft_stats.items():
+            if stat_name == "count":
+                continue
+            ft_stats[stat_name] = _to_6_or_15_stat(np.asarray(stat_value))
+        new_stats[key] = ft_stats
+
+    return new_stats
 
 
 def _to_6_or_15(arr: list | np.ndarray, target_dim: int, arm: str) -> list[float]:
@@ -101,9 +158,14 @@ def run(repo_id: str, target_dim: int, arm: str = "left", root: Path | None = No
         raise ValueError(f"target_dim must be one of {TARGET_DIMS}, got {target_dim}")
     if target_dim == 6 and arm not in ARM_CHOICES:
         raise ValueError(f"arm must be one of {ARM_CHOICES} when target_dim=6, got {arm!r}")
+    if target_dim == 15:
+        # % TO-DO: Implement a well-defined 15-DOF robot_type and corresponding semantics.
+        raise NotImplementedError(
+            "12→15 transform is not implemented yet. For now, only --target_dim 6 is supported."
+        )
 
-    # New repo: always {repo_id}_separated
-    new_repo_id = f"{repo_id.rstrip('/')}_separated"
+    # New repo: always {repo_id}_sep
+    new_repo_id = f"{repo_id.rstrip('/')}_sep"
     default_root = Path(HF_LEROBOT_HOME)
     src_root = Path(root) if root is not None else default_root / repo_id
     dst_root = default_root / new_repo_id.replace("/", "_")
@@ -179,7 +241,7 @@ def run(repo_id: str, target_dim: int, arm: str = "left", root: Path | None = No
         meta.fps,
         new_features,
         use_videos=len(video_keys) > 0,
-        robot_type=meta.robot_type,
+        robot_type=ROBOT_TYPE_6D,
         chunks_size=DEFAULT_CHUNK_SIZE,
         data_files_size_in_mb=DEFAULT_DATA_FILE_SIZE_IN_MB,
         video_files_size_in_mb=DEFAULT_VIDEO_FILE_SIZE_IN_MB,
@@ -202,7 +264,8 @@ def run(repo_id: str, target_dim: int, arm: str = "left", root: Path | None = No
 
     if meta.stats:
         filtered = {k: v for k, v in meta.stats.items() if k in new_features}
-        write_stats(filtered, dst_root)
+        transformed = _transform_stats(filtered, target_dim=target_dim, arm=arm)
+        write_stats(transformed, dst_root)
 
     # Copy only the video folders we're keeping (for 6D we dropped one wrist camera)
     src_videos = src_root / "videos"
@@ -245,7 +308,7 @@ def run(repo_id: str, target_dim: int, arm: str = "left", root: Path | None = No
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Transform action/observation.state 12→6 or 12→15 and push to Hub as {repo_id}_separated.",
+        description="Transform action/observation.state 12→6 or 12→15 and push to Hub as {repo_id}_sep.",
     )
     parser.add_argument("--repo_id", required=True, help="LeRobot dataset repo_id (e.g. username/dataset-name).")
     parser.add_argument("--target_dim", type=int, required=True, choices=[6, 15], help="Target dimension (6 or 15).")
